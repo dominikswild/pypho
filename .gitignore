@@ -1,4 +1,6 @@
 test.ipynb
+test.py
+*.vim
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

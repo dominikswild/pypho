@@ -2,7 +2,7 @@
 from module import core
 
 
-class Layer(object):    # pylint: disable=too-few-public-methods
+class Layer():    # pylint: disable=too-few-public-methods
     """Defines layer in terms of pattern and thickness, and links to layer
     below."""
     def __init__(self, pattern, thickness):
@@ -11,20 +11,18 @@ class Layer(object):    # pylint: disable=too-few-public-methods
         self.next = None
 
 
-class Stack(object):
+class Stack():
     """Defines stack in terms of layers and patters."""
-    def __init__(self, lattice_constant=None, permittivity=1):
+    def __init__(self, lattice_constant=None):
         self.lattice_constant = lattice_constant
-        self.permittivity = permittivity    # background permittivity
         self.material_dict = {}
         self.pattern_dict = {}
         self.top_layer = None
 
-    def initialize(self, lattice_constant, permittivity=1):
+    def initialize(self, lattice_constant):
         """Initializes stack with lattice constant and background
         permittivity"""
         self.lattice_constant = lattice_constant
-        self.permittivity = permittivity
 
     def define_material(self, name, epsilon):
         """Adds material to dictionary."""
@@ -48,16 +46,23 @@ class Stack(object):
             permittivity_list.append(self.material_dict[material])
 
         # create pattern and add to list
-        self.pattern_dict[name] = core.Pattern(permittivity_list, width_list)
+        self.pattern_dict[name] = core.Pattern(permittivity_list,
+                                               [w/self.lattice_constant
+                                                for w in width_list])
 
     def add_layers(self, pattern_list, thickness_list):
         """Prepends layers to stack."""
-        # check that None is only used for bottom layer
-        for i, thickness in enumerate(thickness_list):
-            if thickness is None:
-                if self.top_layer is not None or i != len(thickness_list)-1:
-                    raise ValueError('Only the bottom layer may have thickness '
-                                     '\'None\'.')
+        # check that None is only used for top or bottom layer
+        if None in thickness_list[1:-1]:
+            raise ValueError('Only the top or bottom layer may have thickness '
+                             '\'None\'.')
+        if self.top_layer is not None:
+            if self.top_layer.thickness is None:
+                raise ValueError('Unable to prepend layers because thickness of'
+                                 'current top layer is \'None\'.')
+            if thickness_list[-1] is None:
+                raise ValueError('Only the top or bottom layer may have '
+                                 'thickness \'None\'.')
 
         # prepend layers
         for pattern, thickness in zip(reversed(pattern_list),
@@ -65,3 +70,15 @@ class Stack(object):
             lay = Layer(self.pattern_dict[pattern], thickness)
             lay.next = self.top_layer
             self.top_layer = lay
+
+    def print_stack(self):
+        l = self.top_layer
+        k = 1
+        while l:
+            print(f'Layer {k}:')
+            print(f'\tTickness: {l.thickness}')
+            print(f'\tPermittivities: {l.pattern.permittivity_list}')
+            print(f'\tWidths: {[self.lattice_constant*w for w in l.pattern.width_list]}')
+            print()
+            l = l.next
+            k += 1
