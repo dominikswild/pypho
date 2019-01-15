@@ -50,12 +50,15 @@ class Simulation():
             self.s21 += self.s22 @ i21 @ self.s11
             self.s22 = self.s22 @ (i21 @ self.s21 + i22 * phase_cur)
 
-            # Store for next step
+            # Clear cache
             if not self.cache:
                 layer_prev.pattern.clear_cache()
 
             layer_prev = layer
             layer = layer.next
+
+        if not self.cache:
+            layer_prev.pattern.clear_cache()
 
 
     def compute_reflection(self):

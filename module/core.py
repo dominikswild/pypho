@@ -69,9 +69,9 @@ class Pattern():
 
             self.m_matrix = np.block([[block, -block], [eig_vecs, eig_vecs]])
 
-        def clear_cache(self):
-            """Clears computed matrices to free up memory."""
-            self.eps_ft = None
-            self.eta_ft = None
-            self.m_matrix = None
-            self.wavenumber = None
+    def clear_cache(self):
+        """Clears computed matrices to free up memory."""
+        self.eps_ft = None
+        self.eta_ft = None
+        self.m_matrix = None
+        self.wavenumber = None
