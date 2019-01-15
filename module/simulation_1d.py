@@ -11,13 +11,18 @@ class Simulation():
         self.k = k
         self.cache = cache
         self.stack = geometry.Stack()
+        self.s11, self.s12, self.s21, self.s22 = 4*[None]
+
+    def compute_s_matrix(self):
+        """Computes S matrix"""
+        if self.s11 is not None:
+            return
+
         self.s11 = np.eye(2*self.g_num, dtype=np.cdouble)
         self.s12 = np.eye(2*self.g_num, dtype=np.cdouble)
         self.s21 = np.eye(2*self.g_num, dtype=np.cdouble)
         self.s22 = np.eye(2*self.g_num, dtype=np.cdouble)
 
-    def compute_s_matrix(self):
-        """Computes S matrix"""
         # Read in top layer
         layer_prev = self.stack.top_layer
         layer_prev.pattern.compute_m(self.frequency, self.g_max, self.k)
@@ -63,9 +68,9 @@ class Simulation():
 
     def compute_reflection(self):
         """Computes reflection coefficient"""
-        # need to think about how to formulate this in terms of polarizations,
-        # and allowing for the potential of Bragg scattering
-        pass
+        if len(self.stack.top_layer.pattern.width_list) > 1:
+            raise ValueError('Unable to compute reflection for inhomogeneous '
+                             'top layer.')
 
     def compute_greens_function(self):
         """Computes Green's function"""
