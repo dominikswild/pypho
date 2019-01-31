@@ -1,1 +1,1 @@
-from . import simulation_1d
+from . import 1d
