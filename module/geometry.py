@@ -46,9 +46,14 @@ class Stack():
             permittivity_list.append(self.material_dict[material])
 
         # create pattern and add to list
-        self.pattern_dict[name] = core.Pattern(permittivity_list,
-                                               [w/self.lattice_constant
-                                                for w in width_list])
+        if name in self.pattern_dict:
+            self.pattern_dict[name].permittivity_list = permittivity_list
+            self.pattern_dict[name].width_list = [w/self.lattice_constant
+                                                  for w in width_list]
+        else:
+            self.pattern_dict[name] = core.Pattern(permittivity_list,
+                                                   [w/self.lattice_constant
+                                                    for w in width_list])
 
     def add_layers(self, pattern_list, thickness_list):
         """Prepends layers to stack."""
@@ -72,13 +77,25 @@ class Stack():
             self.top_layer = lay
 
     def print_stack(self):
-        l = self.top_layer
-        k = 1
-        while l:
-            print(f'Layer {k}:')
-            print(f'\tTickness: {l.thickness}')
-            print(f'\tPermittivities: {l.pattern.permittivity_list}')
-            print(f'\tWidths: {[self.lattice_constant*w for w in l.pattern.width_list]}')
+        '''Prints information about all layers in the stack.'''
+        layer = self.top_layer
+        i = 1
+        while layer:
+            print(f'Layer {i}:')
+            print(f'\tTickness: {layer.thickness}', end='')
+            if i == 1 or layer.next is None:
+                print(' (unused)', end='')
             print()
-            l = l.next
-            k += 1
+            print(f'\tPermittivities: {layer.pattern.permittivity_list}')
+            print(
+                '\tWidths: '
+                f'{[self.lattice_constant*w for w in layer.pattern.width_list]}'
+            )
+            print()
+            layer = layer.next
+            i += 1
+
+    def clear_cache(self):
+        '''Clears cache of all patterns.'''
+        for name in self.pattern_dict:
+            self.pattern_dict[name].clear_cache()
