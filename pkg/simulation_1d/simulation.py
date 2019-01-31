@@ -1,11 +1,13 @@
 """Defines simulation class"""
 import numpy as np
-from module import geometry
+from . import geometry
+
+def new(frequency, g_max, momentum=None, caching=True):
+    return Simulation(frequency, g_max, momentum, caching)
 
 class Simulation():
     """Simulation class"""
-    def __init__(self, frequency, g_max,
-                 momentum=None, caching=True):
+    def __init__(self, frequency, g_max, momentum=None, caching=True):
         self.frequency = frequency
         self.g_max = g_max
         self.g_num = 2*g_max + 1

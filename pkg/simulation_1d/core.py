@@ -3,7 +3,7 @@ import numpy as np
 from numpy import pi
 from numpy.lib.scimath import sqrt as csqrt
 from scipy.linalg import toeplitz
-from module import config
+from . import config
 
 
 class Pattern():

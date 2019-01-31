@@ -1,5 +1,5 @@
 """Defines classes used to describe geometry."""
-from module import core
+from . import core
 
 
 class Layer():    # pylint: disable=too-few-public-methods
