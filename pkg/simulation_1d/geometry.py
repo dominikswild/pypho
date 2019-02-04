@@ -1,5 +1,6 @@
-"""Defines classes used to describe geometry."""
+'''Defines classes used to describe geometry.'''
 import warnings
+from . import core
 from .. import config
 
 class Material():
@@ -16,12 +17,40 @@ class Pattern():
     def __init__(self, material_list, width_list):
         self.material_list = material_list
         self.width_list = width_list
+        self.m_matrix = None
+        self.wavenumber = None
+        self.eps_ft = None
+        self.eta_ft = None
+
+
+    def compute_propagation(self, lattice_constant, settings):
+        '''Implements caching for propagation through pattern.'''
+        if self.m_matrix is None:
+            m_matrix, wavenumber = core.compute_propagation(
+                self,
+                lattice_constant,
+                settings
+            )
+            if config.CACHING:
+                self.m_matrix = m_matrix
+                self.wavenumber = wavenumber
+        else:
+            m_matrix = self.m_matrix
+            wavenumber = self.wavenumber
+
+        return m_matrix, wavenumber
+
+
+    def clear_cache(self):
+        '''Clears cache.'''
+        self.m_matrix = None
+        self.wavenumber = None
 
 
 
 class Layer():
-    """Defines layer in terms of pattern and thickness, and links to layer
-    below."""
+    '''Defines layer in terms of pattern and thickness, and links to layer
+    below.'''
     def __init__(self, pattern, thickness):
         self.pattern = pattern
         self.thickness = thickness
@@ -30,7 +59,7 @@ class Layer():
 
 
 class Stack():
-    """Defines stack in terms of layers and patters."""
+    '''Defines stack in terms of layers and patters.'''
     def __init__(self, lattice_constant=None):
         self.lattice_constant = lattice_constant
         self.material_dict = {}
@@ -39,46 +68,51 @@ class Stack():
 
 
     def set_lattice_constant(self, lattice_constant):
-        """Initializes stack with lattice constant and background
-        permittivity"""
+        '''Initializes stack with lattice constant and background
+        permittivity'''
         self.lattice_constant = lattice_constant
+        self.clear_cache()
 
 
     def define_material(self, name, permittivity):
-        """Adds material to dictionary."""
-        if name in self.material_dict:
+        '''Adds material to dictionary.'''
+        if name in self.material_dict:  # modify existing material
             self.material_dict[name].permittivity = permittivity
-        else:
+            self.clear_cache(name)
+        else:   # create new material
             self.material_dict[name] = Material(permittivity)
 
 
     def define_pattern(self, name, material_list, width_list=None):
-        """Defines pattern in terms of material strings and adds it to
-        dictionary."""
+        '''Defines pattern in terms of material strings and adds it to
+        dictionary.'''
         if width_list is None:
             material_handle_list = [self.material_dict[material_list]]
             width_list = [1]
-
         else:
             # normalize width
-            width_list = [width/sum(width_list)for width in width_list]
+            width_list = [width/sum(width_list) for width in width_list]
 
             # convert list of material names to list of materials
             material_handle_list = []
             for material_name in material_list:
                 material_handle_list.append(self.material_dict[material_name])
 
-        if name in self.pattern_dict:
+        if name in self.pattern_dict:   # modify existing pattern
             self.pattern_dict[name].material_handle_list = material_handle_list
             self.pattern_dict[name].width_list = width_list
-        else:
+            self.pattern_dict[name].clear_cache()
+        else:   # create new pattern
             self.pattern_dict[name] = Pattern(material_handle_list, width_list)
 
+
     def add_layer(self, pattern, thickness):
-        add_layers([pattern], [thickness])
+        '''Prepends a single layer.'''
+        self.add_layers([pattern], [thickness])
+
 
     def add_layers(self, pattern_list, thickness_list):
-        """Prepends layers to stack."""
+        '''Prepends layers to stack.'''
         # prepend layers
         for pattern, thickness in zip(reversed(pattern_list),
                                       reversed(thickness_list)):
@@ -86,7 +120,9 @@ class Stack():
             lay.next = self.top_layer
             self.top_layer = lay
 
+
     def set_layer_thickness(self, index, thickness):
+        '''Sets the thickness of the layer specified by index.'''
         layer = self.top_layer
         while layer.next and index > 0:
             layer = layer.next
@@ -101,8 +137,20 @@ class Stack():
         layer.thickness = thickness
 
 
+    def clear_cache(self, *args):
+        '''Clears the cache of all patterns.'''
+        if not args: # clear all patterns
+            for _key, pattern in self.pattern_dict.items():
+                pattern.clear_cache()
+        else: # clear patterns that contain particular material
+            for _key, pattern in self.pattern_dict.items():
+                for material in pattern.material_list:
+                    if material == self.material_dict[args[0]]:
+                        pattern.clear_cache()
+                        break
 
-    def print_stack(self):
+
+    def print(self):
         '''Prints information about all layers in the stack.'''
         layer = self.top_layer
         i = 1
@@ -112,7 +160,11 @@ class Stack():
             if i == 1 or layer.next is None:
                 print(' (unused)', end='')
             print()
-            print(f'\tPermittivities: {list(layer.pattern.material_list)}')
+            permittivity_list = [
+                material.permittivity for material
+                in layer.pattern.material_list
+            ]
+            print(f'\tPermittivities: {permittivity_list}')
             print(
                 '\tWidths: '
                 f'{[self.lattice_constant*w for w in layer.pattern.width_list]}'

@@ -12,14 +12,14 @@ def new(frequency=None, momentum=None, num_order=None):
 class Simulation():
     '''Simulation class'''
     def __init__(self, frequency, momentum, num_order):
+        # stack
+        self.stack = geometry.Stack()
+
         # settings dictionary
         self.settings = {}
         self.set_frequency(frequency)
         self.set_momentum(momentum)
         self.set_num_order(num_order)
-
-        # stack
-        self.stack = geometry.Stack()
 
         # output dictionary
         self.output = {}
@@ -28,27 +28,30 @@ class Simulation():
     def set_frequency(self, frequency):
         '''Sets frequency.'''
         self.settings['frequency'] = frequency
+        self.stack.clear_cache()
 
 
     def set_num_order(self, num_order):
         '''Sets num_order.'''
         self.settings['g_max'] = int((num_order - 1)/2)
         self.settings['g_num'] = 2*self.settings['g_max'] + 1
+        self.stack.clear_cache()
 
 
     def set_momentum(self, momentum):
         '''Sets momentum.'''
-        self.settings['momentum'] = tuple(momentum)
+        self.settings['momentum'] = momentum
+        self.stack.clear_cache()
 
 
     def run(self):
         '''Runs simulation.'''
-        # check that None is only used for top or bottom layer
+        # check validity of layer thicknesses
         layer = self.stack.top_layer.next
         while layer.next:
             if not isinstance(layer.thickness, (int, float)):
                 raise ValueError('Only the top or bottom layer may have '
-                                 'non-numeric thickness.') 
+                                 'non-numeric thickness.')
             layer = layer.next
 
         self.output['s_matrix'] = core.compute_s_matrix(self.stack,

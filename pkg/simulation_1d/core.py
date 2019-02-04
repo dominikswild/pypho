@@ -3,10 +3,8 @@ import numpy as np
 from numpy.lib.scimath import sqrt as csqrt
 from scipy.linalg import toeplitz
 from .. import config
-import functools
 
 
-#@functools.lru_cache(maxsize=config.CACHE_SIZE)
 def compute_s_matrix(stack, settings):
     '''Computes S matrix'''
     def apply_interface(s_matrix, interface, phase_prev, phase_cur):
@@ -39,17 +37,19 @@ def compute_s_matrix(stack, settings):
 
     # read in top layer
     layer_prev = stack.top_layer
-    m_prev, wavenumber = compute_propagation(layer_prev.pattern,
-                                             stack.lattice_constant,
-                                             settings)
+    m_prev, wavenumber = layer_prev.pattern.compute_propagation(
+        stack.lattice_constant,
+        settings
+    )
     phase_prev = np.ones(2*g_num, dtype=np.cdouble)
     layer = layer_prev.next
 
     # step through layers
     while layer:
-        m_cur, wavenumber = compute_propagation(layer.pattern,
-                                                stack.lattice_constant,
-                                                settings)
+        m_cur, wavenumber = layer.pattern.compute_propagation(
+            stack.lattice_constant,
+            settings
+        )
 
         # check if bottom layer has been reached
         if layer.next is None:
@@ -70,7 +70,6 @@ def compute_s_matrix(stack, settings):
     return s_matrix
 
 
-#@functools.lru_cache(maxsize=config.CACHE_SIZE)
 def compute_propagation(pattern, lattice_constant, settings):
     '''Construct matrix M as defined by Whittaker'''
 
@@ -91,7 +90,9 @@ def compute_propagation(pattern, lattice_constant, settings):
         eig_vals, eig_vecs = np.linalg.eig(
             curly_e @ (frequency**2*np.eye(2*g_num) - curly_k) - latin_k
         )
-        return eig_vals, eig_vecs, curly_k
+        return eig_vals, eig_vecs, (frequency**2*np.eye(2*g_num) -
+                                    curly_k)/frequency
+
 
     def diagonalize_homogeneous(permittivity, settings, kx_vec, ky_vec):
         g_num = settings['g_num']
@@ -121,12 +122,12 @@ def compute_propagation(pattern, lattice_constant, settings):
         # combine s- and p-polarizations
         eig_vecs = np.hstack((k_mat, k_perp_mat))
         eig_vals = np.concatenate((eig_vals, eig_vals))
-        return eig_vals, eig_vecs, curly_k
+        return eig_vals, eig_vecs, (frequency**2*np.eye(2*g_num) -
+                                    curly_k)/frequency
 
 
     g_max = settings['g_max']
     g_num = settings['g_num']
-    frequency = settings['frequency']
     momentum = settings['momentum']
 
     kx_vec = momentum[0] + (2*np.pi*np.arange(-g_max, g_max+1)/
@@ -134,26 +135,25 @@ def compute_propagation(pattern, lattice_constant, settings):
     ky_vec = momentum[1]*np.ones(g_num)
 
     if len(pattern.width_list) == 1:    # homogeneous pattern
-        eig_vals, eig_vecs, curly_k = diagonalize_homogeneous(
+        eig_vals, eig_vecs, a_matrix = diagonalize_homogeneous(
             pattern.material_list[0].permittivity, settings, kx_vec, ky_vec)
     else:   # structured pattern
-        eig_vals, eig_vecs, curly_k = diagonalize_structured(pattern, settings,
-                                                             kx_vec, ky_vec)
+        eig_vals, eig_vecs, a_matrix = diagonalize_structured(pattern, settings,
+                                                              kx_vec, ky_vec)
 
     # ensure wavenumbers have positive imaginary part
     wavenumber = csqrt(eig_vals)
     wavenumber[np.imag(wavenumber) < 0] *= -1
 
-    # TODO: need better treatment of wavenumber == 0
+    # TODO: need better treatment of wavenumber == 0. This could be
+    # accomplished by analyticall inverting m_matrix.
     wavenumber[wavenumber == 0] = np.nan
-    block = 1/frequency*(frequency**2*np.eye(2*g_num) -
-                         curly_k) @ eig_vecs / wavenumber
+    block = a_matrix @ eig_vecs / wavenumber
     wavenumber[np.isnan(wavenumber)] = 0
 
     return np.block([[block, -block], [eig_vecs, eig_vecs]]), wavenumber
 
 
-#@functools.lru_cache(maxsize=config.CACHE_SIZE)
 def fourier_transform(pattern, settings):
     '''Computes the Fourier transforms of permittivities'''
     g_num = settings['g_num']
