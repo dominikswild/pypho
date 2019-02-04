@@ -1,1 +1,1 @@
-from .simulation import new_simulation
+from .simulation import new
