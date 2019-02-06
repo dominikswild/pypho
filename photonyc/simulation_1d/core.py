@@ -81,17 +81,18 @@ def compute_propagation(pattern, lattice_constant, settings):
         k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
 
         eps_ft, eta_ft = fourier_transform(pattern, settings)
-        latin_k = k_mat @ k_mat.T
-        curly_k = k_perp_mat @ np.linalg.solve(eps_ft, k_perp_mat.T)
+        latin_k = k_perp_mat @ k_perp_mat.T
+        curly_k = k_mat @ np.linalg.solve(eps_ft, k_mat.T)
         curly_e = np.block(
-            [[eps_ft, np.zeros((g_num, g_num), dtype=np.cdouble)],
-             [np.zeros((g_num, g_num), dtype=np.cdouble),
-              np.linalg.inv(eta_ft)]])
-        eig_vals, eig_vecs = np.linalg.eig(
-            curly_e @ (frequency**2*np.eye(2*g_num) - curly_k) - latin_k
+            [[np.linalg.inv(eta_ft),
+              np.zeros((g_num, g_num), dtype=np.cdouble)],
+             [np.zeros((g_num, g_num), dtype=np.cdouble), eps_ft]]
         )
-        return eig_vals, eig_vecs, (frequency**2*np.eye(2*g_num) -
-                                    curly_k)/frequency
+        eig_vals, eig_vecs = np.linalg.eig(
+            (frequency**2*np.eye(2*g_num) - curly_k) @ curly_e - latin_k
+        )
+        return eig_vals, eig_vecs, (frequency**2*curly_e -
+                                    latin_k)/frequency
 
 
     def diagonalize_homogeneous(permittivity, settings, kx_vec, ky_vec):
@@ -101,7 +102,7 @@ def compute_propagation(pattern, lattice_constant, settings):
         k_mat = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))
         k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
 
-        curly_k = k_perp_mat @ k_perp_mat.T / permittivity
+        latin_k = k_perp_mat @ k_perp_mat.T
 
         # normalize while taking care of zero momentum
         k_norm = np.sqrt(kx_vec**2 + ky_vec**2)
@@ -117,13 +118,13 @@ def compute_propagation(pattern, lattice_constant, settings):
         k_mat[ind, ind] = 1
         k_mat = k_mat/k_norm*csqrt(eig_vals/(permittivity*frequency**2))
         k_perp_mat[g_num + ind, ind] = 1
-        k_perp_mat /= k_norm
+        k_perp_mat = k_perp_mat/k_norm
 
         # combine s- and p-polarizations
-        eig_vecs = np.hstack((k_mat, k_perp_mat))
+        eig_vecs = np.hstack((k_perp_mat, k_mat))
         eig_vals = np.concatenate((eig_vals, eig_vals))
-        return eig_vals, eig_vecs, (frequency**2*np.eye(2*g_num) -
-                                    curly_k)/frequency
+        return eig_vals, eig_vecs, (permittivity*frequency**2*np.eye(2*g_num) -
+                                    latin_k)/frequency
 
 
     g_max = settings['g_max']
@@ -151,7 +152,7 @@ def compute_propagation(pattern, lattice_constant, settings):
     block = a_matrix @ eig_vecs / wavenumber
     wavenumber[np.isnan(wavenumber)] = 0
 
-    return np.block([[block, -block], [eig_vecs, eig_vecs]]), wavenumber
+    return np.block([[eig_vecs, eig_vecs], [-block, block]]), wavenumber
 
 
 def fourier_transform(pattern, settings):

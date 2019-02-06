@@ -61,6 +61,9 @@ class Simulation():
     # TODO: make this function more user friendly
     def compute_reflection(self, order, polarization):
         '''Returns reflection coefficient'''
+        if self.stack.top_layer is None:
+            raise ValueError('You must add layers to the stack before '
+                             'computing the reflection coefficient.')
         if len(self.stack.top_layer.pattern.width_list) > 1:
             raise ValueError('Unable to compute reflection for inhomogeneous '
                              'top layer.')
