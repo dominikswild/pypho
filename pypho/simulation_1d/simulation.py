@@ -23,6 +23,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+import warnings
+import numpy as np
 from . import geometry
 from . import core
 
@@ -114,35 +116,49 @@ class Simulation():
                                                         self.settings)
 
 
-    def get_reflection(self, order, polarization):
+    def get_reflection(self, order_in=0, polarization_in=None, order_out=0,
+                       polarization_out=None):
         """Obtains the amplitude reflection coefficient for given input/output
         diffraction orders and polarizations from the S-matrix.
 
         Args:
-            order: A two-element list where the first element corresponds to
-                the input diffraction order, while the second refers to the
-                output order to be computed.
-            polarization: A two-element tuple or array with possible entries
-                {'s', 'p'}. The first and second elements refer to the input
-                and output polarizations, respectively.
+            order_in: Diffraction order of the incident light.
+            polarization_in: Vector of the incident polarization in the s-p
+                basis.
+            order_out, polarization_out: Same as above for reflected light.
 
         Returns:
-            The amplitude reflection coefficient as a complex number.
+            The amplitude reflection coefficient. If both polarizations are
+            specified, the output is a complex number. If one of the
+            polarizations is specified, a 2 element array is returned, where
+            the first (second) entry corresponds to the s (p) component of the
+            other polarization. If both arguments are emitted, a 2x2 array is
+            returned, where the row (column) index corresponds to the reflected
+            (incident) polarization.
 
         Raises:
-            RuntimeError: Simulation.run() has not been called, or the
-                specified geometry is invalid.
+            RuntimeError: Simulation.run() has not been called.
+            Warning: Top layer is inhomogeneous.
         """
         if not self.output:
             raise RuntimeError("You must run the simulation before results"
                                "can be returned.")
         if len(self.stack.top_layer.pattern.width_list) > 1:
-            raise RuntimeError("Unable to compute reflection for inhomogeneous "
-                               "top layer.")
+            warnings.warn("The reflection coefficient has no simple"
+                          "interpretation for an inhomogenous top layer.")
 
-        pol_index = {'s': self.settings['g_max'],
-                     'p': 3*self.settings['g_max'] + 1}
-        return self.output['s_matrix'][1, 0][
-            pol_index[polarization[1]] + order[1],
-            pol_index[polarization[0]] + order[0]
+        index_sp = np.array([[self.settings['g_max'], 3*self.settings['g_max'] +
+                             1]])
+        reflection = self.output['s_matrix'][1, 0][
+            index_sp.transpose() + order_out,
+            index_sp + order_in
         ]
+
+        if polarization_in is not None:
+            polarization_in = polarization_in/np.linalg.norm(polarization_in)
+            reflection = reflection @ polarization_in
+        if polarization_out is not None:
+            polarization_out = polarization_out/np.linalg.norm(polarization_out)
+            reflection = polarization_out @ reflection
+
+        return reflection
