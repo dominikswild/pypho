@@ -153,11 +153,12 @@ class Stack():
             cur_index += 1
 
         if index > cur_index:
-            raise ValueError("index = {index} exceeds (number of layers - 1 = "
-                             "{cur_index})")
+            raise ValueError(f"(index = {index}) exceeds (number of layers - 1 = "
+                             f"{cur_index})")
         if not layer.next:
-            warnings.warn("Changing the thickness of the bottom layer has "\
-                          "no effect.")
+            warnings.warn(
+                "Changing the thickness of the bottom layer has no effect."
+            )
 
         layer.thickness = thickness
 
