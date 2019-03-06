@@ -84,7 +84,8 @@ def compute_s_matrix(stack, settings):
 
     # read in top layer
     layer_prev = stack.top_layer
-    m_prev, wavenumbers = layer_prev.pattern.compute_propagation(
+    m_prev, wavenumbers = compute_propagation(
+        layer_prev.pattern,
         stack.lattice_constant,
         settings
     )
@@ -93,7 +94,8 @@ def compute_s_matrix(stack, settings):
 
     # step through layers
     while layer:
-        m_cur, wavenumbers = layer.pattern.compute_propagation(
+        m_cur, wavenumbers = compute_propagation(
+            layer.pattern,
             stack.lattice_constant,
             settings
         )
@@ -117,6 +119,25 @@ def compute_s_matrix(stack, settings):
     return s_matrix
 
 
+def pattern_cache(func):
+    """Provides caching decorator to store propagation properties of individual
+    patterns. The first argument of func must be an instance of Pattern.
+    """
+    def func_cached(*args, **kwargs):
+        pattern = args[0]
+        if func.__name__ not in pattern.cache:
+            out = func(*args, **kwargs)
+            if config.CACHING:  # caching enabled
+                pattern.cache[func.__name__] = out
+        else:
+            out = pattern.cache[func.__name__]
+
+        return out
+
+    return func_cached
+
+
+@pattern_cache
 def compute_propagation(pattern, lattice_constant, settings):
     """Solves propagation for a given pattern and returns results required to
     compute S-matrix.
@@ -141,7 +162,7 @@ def compute_propagation(pattern, lattice_constant, settings):
         k_mat = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))
         k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
 
-        eps_ft, eta_ft = pattern.fourier_transform(settings)
+        eps_ft, eta_ft = fourier_transform(pattern, settings)
         latin_k = k_perp_mat @ k_perp_mat.T
         curly_k = k_mat @ np.linalg.solve(eps_ft, k_mat.T)
         curly_e = np.block(
@@ -219,6 +240,7 @@ def compute_propagation(pattern, lattice_constant, settings):
     return np.block([[eig_vecs, eig_vecs], [-block, block]]), wavenumbers
 
 
+@pattern_cache
 def fourier_transform(pattern, settings):
     """Computes the Fourier transforms of permittivities.
 

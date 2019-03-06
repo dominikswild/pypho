@@ -24,8 +24,6 @@ SOFTWARE.
 """
 
 import warnings
-from . import core
-from .. import config
 
 
 class Stack():
@@ -169,9 +167,9 @@ class Stack():
 
         Args:
             *args: If the function is called without an argument, the cache of
-            all patterns is cleared. The function can be called with a material
-            as an argument, in which case the cache of all patterns containing
-            the material is cleared.
+            all patterns in the stack is cleared. The function can be called
+            with a material as an argument, in which case the cache of all
+            patterns containing the material is cleared.
         """
         if not args:  # clear all patterns
             for _key, pattern in self.pattern_dict.items():
@@ -209,7 +207,7 @@ class Stack():
 
 
 
-class Pattern():
+class Pattern():  # pylint: disable=too-few-public-methods
     """Defines an in-plane periodic pattern. The class also enables caching for
     propagation through the pattern.
 
@@ -225,57 +223,12 @@ class Pattern():
     def __init__(self, material_list, width_list):
         self.material_list = material_list
         self.width_list = [width/sum(width_list) for width in width_list]
-        self.m_matrix = None
-        self.wavenumbers = None
-        self.eps_ft = None
-        self.eta_ft = None
-
-
-    # TODO: Is there a more elegant way of implementing this?
-    def compute_propagation(self, lattice_constant, settings):
-        """Implements caching for M-matrix and wavenumbers. For details on the
-        computation see the corresponding function in the core module."""
-        if self.m_matrix is None:
-            m_matrix, wavenumbers = core.compute_propagation(
-                self,
-                lattice_constant,
-                settings
-            )
-            if config.CACHING:
-                self.m_matrix = m_matrix
-                self.wavenumbers = wavenumbers
-        else:
-            m_matrix = self.m_matrix
-            wavenumbers = self.wavenumbers
-
-        return m_matrix, wavenumbers
-
-
-    def fourier_transform(self, settings):
-        """Implements caching for eps_ft and eta_ft. For details on the
-        computation see the corresponding function in the core module."""
-        if self.m_matrix is None:
-            eps_ft, eta_ft = core.fourier_transform(
-                self,
-                settings
-            )
-            if config.CACHING:
-                self.eps_ft = eps_ft
-                self.eta_ft = eta_ft
-        else:
-            eps_ft = self.eps_ft
-            eta_ft = self.eta_ft
-
-        return eps_ft, eta_ft
+        self.cache = {}
 
 
     def clear_cache(self):
         """Clear the cache of the pattern."""
-        self.m_matrix = None
-        self.wavenumbers = None
-        self.eps_ft = None
-        self.eta_ft = None
-
+        self.cache = {}
 
 
 class Layer():  # pylint: disable=too-few-public-methods
