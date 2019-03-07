@@ -55,20 +55,29 @@ class Stack():
         self.clear_cache()
 
 
-    def define_material(self, name, permittivity):
+    def define_material(self, name, permittivity, two_dimensional=None):
         """Adds new material to dictionary. If material already exists, its
-        properties are updated.
+        properties are updated. Note that existing two-dimensional materials
+        cannot be converted into three-dimensional ones and vice versa.
 
         Args:
             name: String specifying material name.
             permittivity: Complex number specifying permittivity.
+
+        Raise:
+            RuntimeError: User attempted to convert 2D material in to 3D
+                material or vice versa.
         """
         if name in self.material_dict:
+            if two_dimensional is not None:
+                if two_dimensional != material.two_dimensional:
+                    raise RuntimeError("It is not possible to convert a 2D "
+                                       "material into a 3D one or vice versa.")
             material = self.material_dict[name]
             material.permittivity = permittivity
             self.clear_cache(material)
         else:
-            self.material_dict[name] = Material(permittivity)
+            self.material_dict[name] = Material(permittivity, two_dimensional)
 
 
     def define_pattern(self, name, material_name_list, width_list=None):
@@ -86,6 +95,10 @@ class Stack():
                 pattern independent of the lattice constant. If width_list is
                 omitted, a homogeneous pattern made of the first material in
                 material_name_list is created.
+
+        Raises:
+            RuntimeError: User attempted to create a pattern from a combination
+                of two-dimensional and three-dimensional materials.
         """
         if width_list is None:
             if isinstance(material_name_list, str):
@@ -97,6 +110,11 @@ class Stack():
             material_list = []
             for material_name in material_name_list:
                 material_list.append(self.material_dict[material_name])
+                if (material_list[0].two_dimensional !=
+                        material_list[-1].two_dimensional):
+                    raise RuntimeError("It is not possible to combine "
+                                       "two-dimensional and three-dimensional "
+                                       "materials in a pattern.")
 
         if name in self.pattern_dict:
             pattern = self.pattern_dict[name]
@@ -145,6 +163,8 @@ class Stack():
 
         Raises:
             ValueError: The index is outside the valid range.
+            Warning: The thickness of the bottom or a two-dimensional layer was
+                changed.
         """
         layer = self.top_layer
         cur_index = 0
@@ -153,11 +173,16 @@ class Stack():
             cur_index += 1
 
         if index > cur_index:
-            raise ValueError(f"(index = {index}) exceeds (number of layers - 1 = "
-                             f"{cur_index})")
+            raise ValueError(f"(index = {index}) exceeds "
+                             f"(number of layers - 1 = {cur_index})")
         if not layer.next:
             warnings.warn(
                 "Changing the thickness of the bottom layer has no effect."
+            )
+        if layer.pattern.material_list[0].two_dimensional:
+            warnings.warn(
+                "Changing the thickness of a two-dimensional layer has no "
+                "effect."
             )
 
         layer.thickness = thickness
@@ -259,6 +284,10 @@ class Material():   # pylint: disable=too-few-public-methods
     Attributes:
         permittivity: Complex number specifying the permittivity of the
             material.
+        two_dimensional: A flag which is true if the material is
+            infinitesimally thick. In this case, permittivity is the 2D
+            permittivity, which has units of length.
     """
-    def __init__(self, permittivity):
+    def __init__(self, permittivity, two_dimensional=False):
         self.permittivity = permittivity
+        self.two_dimensional = two_dimensional
