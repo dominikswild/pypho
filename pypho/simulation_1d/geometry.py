@@ -125,14 +125,30 @@ class Stack():
             self.pattern_dict[name] = Pattern(material_list, width_list)
 
 
-    def add_layer(self, pattern, thickness):
-        """Prepends a single layer to the stack.
+    def add_layer(self, pattern_name, thickness):
+        """Prepends a single layer to the stack. If there is no item with
+        key 'pattern_name' in 'pattern_dict' but such a material with this name
+        exists, the function will create a new homogeneous pattern for this
+        material.
 
         Args:
             pattern: String containing the name of the pattern to be added.
             thickness: Number specifying the thickness of the layer.
+
+        Raises:
+            ValueError: 'pattern_name' does not refer to an existing pattern or
+                material.
         """
-        self.add_layers([pattern], [thickness])
+        if pattern_name not in self.pattern_dict:
+            if pattern_name not in self.material_dict:
+                raise ValueError(f"Pattern or material name '{pattern_name}' "
+                                 "not found.")
+            self.define_pattern(pattern_name, pattern_name)
+
+        pattern = self.pattern_dict[pattern_name]
+        layer = Layer(pattern, thickness)
+        layer.next = self.top_layer
+        self.top_layer = layer
 
 
     def add_layers(self, pattern_list, thickness_list):
@@ -145,12 +161,21 @@ class Stack():
                 patterns to be added.
             thickness_list: List or tuple of numbers specifying the thickness
                 of each layer.
+        Raises:
+            ValueError: 'pattern_list' and 'thickness_list' do not have the
+                same length.
         """
-        for pattern, thickness in zip(reversed(pattern_list),
-                                      reversed(thickness_list)):
-            layer = Layer(self.pattern_dict[pattern], thickness)
-            layer.next = self.top_layer
-            self.top_layer = layer
+        if isinstance(pattern_list, str):
+            self.add_layer(pattern_list, thickness_list)
+            return
+
+        if len(pattern_list) != len(thickness_list):
+            raise ValueError("'pattern_list' must have the same length as "
+                             "'thickness_list'")
+
+        for pattern_name, thickness in zip(reversed(pattern_list),
+                                           reversed(thickness_list)):
+            self.add_layer(pattern_name, thickness)
 
 
     def set_layer_thickness(self, index, thickness):
@@ -179,13 +204,38 @@ class Stack():
             warnings.warn(
                 "Changing the thickness of the bottom layer has no effect."
             )
-        if layer.pattern.material_list[0].two_dimensional:
+        if layer.pattern.two_dimensional:
             warnings.warn(
                 "Changing the thickness of a two-dimensional layer has no "
                 "effect."
             )
 
         layer.thickness = thickness
+
+
+    def set_layer_pattern(self, index, pattern_name):
+        """Sets the pattern of the layer specified by index.
+
+        Args:
+            index: Integer specifying the layer. The layers are numbered from
+                top to bottom, with the top layer having index 0.
+            pattern: New pattern of the layer.
+
+        Raises:
+            ValueError: The index is outside the valid range.
+                changed.
+        """
+        layer = self.top_layer
+        cur_index = 0
+        while layer.next and index > cur_index:
+            layer = layer.next
+            cur_index += 1
+
+        if index > cur_index:
+            raise ValueError(f"(index = {index}) exceeds "
+                             f"(number of layers - 1 = {cur_index})")
+
+        layer.pattern = self.pattern_dict[pattern_name]
 
 
     def clear_cache(self, *args):
@@ -215,7 +265,7 @@ class Stack():
         while layer:
             print(f"Layer {i}:")
             print(f"\tTickness: {layer.thickness}", end="")
-            if i == 0 or layer.next is None:
+            if i == 0 or layer.next is None or layer.pattern.two_dimensional:
                 print(" (unused)", end="")
             print()
             permittivity_list = [
@@ -241,14 +291,14 @@ class Pattern():  # pylint: disable=too-few-public-methods
         material_list: A list of or tuple of Material instances.
         width_list: A list of widths corresponding to each material. The widths
             are normalized such that they sum to 1.
-        m_matrix: Caches the M-matrix that is used to compute the S-matrix.
-        wavenumbers: Caches the wavenumbers for out-of-plane propagation.
-        eps_ft: Caches the Fourier transform of the permittivity.
-        eta_ft: Caches the Fourier transform of the inverse permittivity.
+        two_dimensional: True if the pattern is made up of two-dimensional
+            materials, False otherwise.
+        cache: Dictionary used by core functions to cache computation results.
     """
     def __init__(self, material_list, width_list):
         self.material_list = material_list
         self.width_list = [width/sum(width_list) for width in width_list]
+        self.two_dimensional = material_list[0].two_dimensional
         self.cache = {}
 
 

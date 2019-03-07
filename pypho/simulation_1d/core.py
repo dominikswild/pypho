@@ -41,18 +41,23 @@ def compute_s_matrix(stack, settings):
         S-matrix.
 
     Raises:
-        RuntimeError: The layer thicknesses are invalid.
+        RuntimeError: The stack is invalid.
     """
     # check validity of stack
     if stack.top_layer is None:
         raise RuntimeError("You must add layers to the stack before running "
                            "the simulation")
+    if stack.top_layer.pattern.two_dimensional:
+        raise RuntimeError("The top layer must not be two-dimensional.")
     layer = stack.top_layer.next
     while layer.next:
-        if not isinstance(layer.thickness, (int, float)):
-            raise RuntimeError("Only the top or bottom layer may have "
-                               "non-numeric thickness.")
+        if not layer.pattern.two_dimensional:
+            if not isinstance(layer.thickness, (int, float)):
+                raise RuntimeError("Only the top or bottom, or two-dimensional "
+                                   "layers may have non-numeric thickness.")
         layer = layer.next
+    if layer.pattern.two_dimensional:
+        raise RuntimeError("The bottom layer must not be two-dimensional")
 
     def __apply_interface(s_matrix, interface, phase_prev, phase_cur):
         """Updates S-matrix at interface."""
@@ -94,6 +99,11 @@ def compute_s_matrix(stack, settings):
 
     # step through layers
     while layer:
+        curly_e_2d = 0
+        while layer.pattern.two_dimensional:
+            curly_e_2d += compute_curly_e(layer.pattern, settings)
+            layer = layer.next
+
         m_cur, wavenumbers = compute_propagation(
             layer.pattern,
             stack.lattice_constant,
@@ -107,7 +117,16 @@ def compute_s_matrix(stack, settings):
             phase_cur = np.exp(1j*wavenumbers*layer.thickness)
 
         # update s_matrix
-        interface = np.linalg.solve(m_prev, m_cur)
+        if isinstance(curly_e_2d, np.ndarray):
+            transfer_matrix = np.block(
+                [[np.eye(2*g_num, dtype=np.cdouble),
+                  np.zeros((2*g_num, 2*g_num), dtype=np.cdouble)],
+                 [-1j*settings['frequency']*curly_e_2d,
+                  np.eye(2*g_num, dtype=np.cdouble)]]
+            )
+            interface = np.linalg.solve(transfer_matrix @ m_prev, m_cur)
+        else:
+            interface = np.linalg.solve(m_prev, m_cur)
         __apply_interface(s_matrix, interface, phase_prev, phase_cur)
 
         # proceed to next layer
@@ -162,14 +181,10 @@ def compute_propagation(pattern, lattice_constant, settings):
         k_mat = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))
         k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
 
-        eps_ft, eta_ft = fourier_transform(pattern, settings)
+        eps_ft, _ = fourier_transform(pattern, settings)
         latin_k = k_perp_mat @ k_perp_mat.T
         curly_k = k_mat @ np.linalg.solve(eps_ft, k_mat.T)
-        curly_e = np.block(
-            [[np.linalg.inv(eta_ft),
-              np.zeros((g_num, g_num), dtype=np.cdouble)],
-             [np.zeros((g_num, g_num), dtype=np.cdouble), eps_ft]]
-        )
+        curly_e = compute_curly_e(pattern, settings)
         eig_vals, eig_vecs = np.linalg.eig(
             (frequency**2*np.eye(2*g_num) - curly_k) @ curly_e - latin_k
         )
@@ -198,8 +213,8 @@ def compute_propagation(pattern, lattice_constant, settings):
         k_perp_mat[:, ind] = 0
         ind = np.where(ind)[0]
         if len(ind) > 1:
-            raise ValueError("Strangely enough, more than one momentum is"
-                             "close to zero.")
+            raise RuntimeError("Strangely enough, more than one momentum is"
+                               "close to zero.")
         k_mat[ind, ind] = 1
         k_mat = k_mat/k_norm*csqrt(eig_vals/(permittivity*frequency**2))
         k_perp_mat[g_num + ind, ind] = 1
@@ -212,18 +227,21 @@ def compute_propagation(pattern, lattice_constant, settings):
                                     latin_k)/frequency
 
 
-    g_max = settings['g_max']
-    g_num = settings['g_num']
     momentum = settings['momentum']
 
-    kx_vec = momentum[0] + (2*np.pi*np.arange(-g_max, g_max+1)/
-                            lattice_constant)
-    ky_vec = momentum[1]*np.ones(g_num)
+    if settings['g_num'] == 1:
+        kx_vec = np.array([momentum[0]])
+        ky_vec = np.array([momentum[1]])
+    else:
+        kx_vec = momentum[0] + (2*np.pi/lattice_constant*
+                                np.arange(-settings['g_max'],
+                                          settings['g_max']+1))
+        ky_vec = momentum[1]*np.ones(settings['g_num'])
 
-    if len(pattern.width_list) == 1:    # homogeneous pattern
+    if len(pattern.width_list) == 1:
         eig_vals, eig_vecs, a_matrix = __diagonalize_homogeneous(
             pattern.material_list[0].permittivity, settings, kx_vec, ky_vec)
-    else:   # structured pattern
+    else:
         eig_vals, eig_vecs, a_matrix = __diagonalize_structured(
             pattern, settings, kx_vec, ky_vec)
 
@@ -237,7 +255,9 @@ def compute_propagation(pattern, lattice_constant, settings):
     block = a_matrix @ eig_vecs / wavenumbers
     wavenumbers[np.isnan(wavenumbers)] = 0
 
-    return np.block([[eig_vecs, eig_vecs], [-block, block]]), wavenumbers
+    m_matrix = np.block([[eig_vecs, eig_vecs], [-block, block]])
+
+    return m_matrix, wavenumbers
 
 
 @pattern_cache
@@ -283,3 +303,20 @@ def fourier_transform(pattern, settings):
 
     return (scipy.linalg.toeplitz(eps_column, eps_row),
             scipy.linalg.toeplitz(eta_column, eta_row))
+
+
+def compute_curly_e(pattern, settings):
+    """Return curly_e."""
+    g_num = settings['g_num']
+    if len(pattern.width_list) == 1:  # homogeneous pattern
+        curly_e = (pattern.material_list[0].permittivity
+                   *np.eye(2*g_num, dtype=np.cdouble))
+    else:  # homogeneous pattern
+        eps_ft, eta_ft = fourier_transform(pattern, settings)
+        curly_e = np.block(
+            [[np.linalg.inv(eta_ft),
+              np.zeros((g_num, g_num), dtype=np.cdouble)],
+             [np.zeros((g_num, g_num), dtype=np.cdouble), eps_ft]]
+        )
+
+    return curly_e

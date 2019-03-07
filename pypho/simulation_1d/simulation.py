@@ -29,7 +29,7 @@ from . import geometry
 from . import core
 
 
-def new(frequency=None, momentum=None, num_order=None):
+def new(frequency=None, momentum=(0,0), order_num=1):
     """Returns a new instance of Simulation.
 
     Args:
@@ -41,7 +41,7 @@ def new(frequency=None, momentum=None, num_order=None):
         An instance of the Simulation class.
     """
 
-    return Simulation(frequency, momentum, num_order)
+    return Simulation(frequency, momentum, order_num)
 
 
 
@@ -60,14 +60,14 @@ class Simulation():
             the run method. get_* methods query it to return physically
             relevant results.
     """
-    def __init__(self, frequency, momentum, num_order):
+    def __init__(self, frequency=None, momentum=(0,0), order_num=1):
         """Initializes Simulation with simulation settings."""
         self.stack = geometry.Stack()
 
         self.settings = {}
         self.set_frequency(frequency)
         self.set_momentum(momentum)
-        self.set_num_order(num_order)
+        self.set_order_num(order_num)
 
         self.output = {}
 
@@ -83,17 +83,17 @@ class Simulation():
         self.stack.clear_cache()
 
 
-    def set_num_order(self, num_order):
+    def set_order_num(self, order_num):
         """Sets number of reciprocal lattice vectors to be used. The function
         stores the largest order and number of reciprocal lattice vectors as
         'g_max' and 'g_num' fields of the settings dictionary.
 
         Args:
-            num_order: The number of reciprocal lattice vectors, which is equal
+            order_num: The number of reciprocal lattice vectors, which is equal
                 to the number of refraction orders. The number used internally
-                must be odd; 1 is subtracted if num_order is even.
+                must be odd; 1 is subtracted if order_num is even.
         """
-        self.settings['g_max'] = int((num_order - 1)/2)
+        self.settings['g_max'] = int((order_num - 1)/2)
         self.settings['g_num'] = 2*self.settings['g_max'] + 1
         self.stack.clear_cache()
 
