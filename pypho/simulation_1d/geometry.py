@@ -37,8 +37,8 @@ class Stack():
     """
 
     def __init__(self, lattice_constant=None):
-        """Initializes Stack instance. The lattice constant can be specified, or
-        set at a later point with set_lattice_constant."""
+        """Initializes Stack instance. The lattice constant can be set (or
+        changed) at a later point with set_lattice_constant."""
         self.lattice_constant = lattice_constant
         self.material_dict = {}
         self.pattern_dict = {}
@@ -55,29 +55,36 @@ class Stack():
         self.clear_cache()
 
 
-    def define_material(self, name, permittivity, two_dimensional=None):
+    def define_material(self, name, permittivity_xy, permittivity_z=None,
+                        two_dimensional=None):
         """Adds new material to dictionary. If material already exists, its
         properties are updated. Note that existing two-dimensional materials
-        cannot be converted into three-dimensional ones and vice versa.
+        cannot be converted into three-dimensional ones or vice versa.
 
         Args:
             name: String specifying material name.
-            permittivity: Complex number specifying permittivity.
+            permittivity_xy: Complex number specifying the in-plane
+                permittivity.
+            permittivity_z: Complex number specifying the out-of-plane
+                permittivity. If this argument is omitted, it is taken to be
+                the same as the in-plane permittivity (isotropic medium).
 
-        Raise:
+        Raises:
             RuntimeError: User attempted to convert 2D material in to 3D
                 material or vice versa.
         """
         if name in self.material_dict:
+            material = self.material_dict[name]
             if two_dimensional is not None:
                 if two_dimensional != material.two_dimensional:
                     raise RuntimeError("It is not possible to convert a 2D "
                                        "material into a 3D one or vice versa.")
-            material = self.material_dict[name]
-            material.permittivity = permittivity
+            material.set_permittivity(permittivity_xy, permittivity_z)
             self.clear_cache(material)
         else:
-            self.material_dict[name] = Material(permittivity, two_dimensional)
+            self.material_dict[name] = Material(permittivity_xy,
+                                                permittivity_z,
+                                                two_dimensional)
 
 
     def define_pattern(self, name, material_name_list, width_list=None):
@@ -95,10 +102,6 @@ class Stack():
                 pattern independent of the lattice constant. If width_list is
                 omitted, a homogeneous pattern made of the first material in
                 material_name_list is created.
-
-        Raises:
-            RuntimeError: User attempted to create a pattern from a combination
-                of two-dimensional and three-dimensional materials.
         """
         if width_list is None:
             if isinstance(material_name_list, str):
@@ -107,14 +110,8 @@ class Stack():
                 material_list = [self.material_dict[material_name_list[0]]]
             width_list = [1]
         else:
-            material_list = []
-            for material_name in material_name_list:
-                material_list.append(self.material_dict[material_name])
-                if (material_list[0].two_dimensional !=
-                        material_list[-1].two_dimensional):
-                    raise RuntimeError("It is not possible to combine "
-                                       "two-dimensional and three-dimensional "
-                                       "materials in a pattern.")
+            material_list = [self.material_dict[material_name]
+                             for material_name in material_name_list]
 
         if name in self.pattern_dict:
             pattern = self.pattern_dict[name]
@@ -258,6 +255,7 @@ class Stack():
                     break
 
 
+    # TODO: Add more functionality to query stack.
     def print(self):
         """Prints information about all layers in the stack."""
         layer = self.top_layer
@@ -293,12 +291,33 @@ class Pattern():  # pylint: disable=too-few-public-methods
             are normalized such that they sum to 1.
         two_dimensional: True if the pattern is made up of two-dimensional
             materials, False otherwise.
+        homogeneous: Flag that signals whether the pattern is homogeneous.
         cache: Dictionary used by core functions to cache computation results.
     """
     def __init__(self, material_list, width_list):
+        """
+        Raises:
+            RuntimeError: User attempted to create a pattern from a combination
+                of two-dimensional and three-dimensional materials.
+        """
+        for material in material_list:
+            if material.two_dimensional != material_list[0].two_dimensional:
+                raise RuntimeError("It is not possible to combine "
+                                   "two-dimensional and three-dimensional "
+                                   "materials in a pattern.")
+
         self.material_list = material_list
-        self.width_list = [width/sum(width_list) for width in width_list]
+
+        width_total = sum(width_list)
+        self.width_list = [width/width_total for width in width_list]
+
         self.two_dimensional = material_list[0].two_dimensional
+
+        if len(self.material_list) == 1:
+            self.homogeneous = True
+        else:
+            self.homogeneous = False
+
         self.cache = {}
 
 
@@ -332,12 +351,30 @@ class Material():   # pylint: disable=too-few-public-methods
     features in the future such as frequency dependence.
 
     Attributes:
-        permittivity: Complex number specifying the permittivity of the
+        permittivity_xy: 2x2 specifying the in-plane permittivity of the
             material.
+        permittivity_z: Complex number specifying the out-of-plane
+            permittivity.
         two_dimensional: A flag which is true if the material is
             infinitesimally thick. In this case, permittivity is the 2D
             permittivity, which has units of length.
+        isotropic: A flag which is set to True when permittivity_z is equal to
+            permittivity_xy.
     """
-    def __init__(self, permittivity, two_dimensional=False):
-        self.permittivity = permittivity
+    def __init__(self, permittivity_xy, permittivity_z, two_dimensional):
+        self.set_permittivity(permittivity_xy, permittivity_z)
         self.two_dimensional = two_dimensional
+
+    def set_permittivity(self, permittivity_xy, permittivity_z):
+        """Distinguishes between scalar and matrix input and sets the
+        permittivity accordingly."""
+        self.permittivity_xy = permittivity_xy
+        if permittivity_z is None:
+            self.permittivity_z = permittivity_xy
+            self.isotropic = True
+        else:
+            self.permittivity_z = permittivity_z
+            if permittivity_xy == permittivity_z:
+                self.isotropic = True
+            else:
+                self.isotropic = False
