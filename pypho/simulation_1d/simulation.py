@@ -29,7 +29,7 @@ from . import geometry
 from . import core
 
 
-def new(frequency=None, momentum=(0,0), order_num=1):
+def new(frequency=None, momentum=(0, 0), order_num=1):
     """Returns a new instance of Simulation.
 
     Args:
@@ -50,8 +50,8 @@ class Simulation():
     provides methods to obtain physical results.
 
     Attributes:
-        stack: An instance of the Stack class that stores all geometric
-            information.
+        stack: An instance of the Stack class that stores all information about
+            the stack geometry.
         settings: A dictionary storing the settings of the simulation. The
             fields of the dictionary are 'frequency', 'g_max', g_num',
             'momentum'. The fields should not be directly accessed by the user
@@ -60,7 +60,8 @@ class Simulation():
             the run method. get_* methods query it to return physically
             relevant results.
     """
-    def __init__(self, frequency=None, momentum=(0,0), order_num=1):
+
+    def __init__(self, frequency, momentum, order_num):
         """Initializes Simulation with simulation settings."""
         self.stack = geometry.Stack()
 
@@ -138,17 +139,22 @@ class Simulation():
 
         Raises:
             RuntimeError: Simulation.run() has not been called.
-            Warning: Top layer is inhomogeneous.
+            Warning: Top layer is inhomogeneous or anisotropic.
         """
         if not self.output:
-            raise RuntimeError("You must run the simulation before results"
+            raise RuntimeError("You must run the simulation before results "
                                "can be returned.")
-        if len(self.stack.top_layer.pattern.width_list) > 1:
-            warnings.warn("The reflection coefficient has no simple"
+        if not self.stack.top_layer.pattern.homogeneous:
+            warnings.warn("The reflection coefficient has no simple "
                           "interpretation for an inhomogenous top layer.")
+        else:
+            if not self.stack.top_layer.pattern.material_list[0].isotropic:
+                warnings.warn("The reflection coefficient has no simple "
+                              "interpretation for a top layer with in-plane "
+                              "anisotropy.")
 
-        index_sp = np.array([[self.settings['g_max'], 3*self.settings['g_max'] +
-                             1]])
+        index_sp = np.array([[self.settings['g_max'],
+                              3*self.settings['g_max'] + 1]])
         reflection = self.output['s_matrix'][1, 0][
             index_sp.transpose() + order_out,
             index_sp + order_in

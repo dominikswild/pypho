@@ -43,7 +43,6 @@ def compute_s_matrix(stack, settings):
     Raises:
         RuntimeError: The stack is invalid.
     """
-    # check validity of stack
     if stack.top_layer is None:
         raise RuntimeError("You must add layers to the stack before running "
                            "the simulation")
@@ -78,7 +77,6 @@ def compute_s_matrix(stack, settings):
 
     g_num = settings['g_num']
 
-    # initialize S-matrix
     s_matrix = np.full((2, 2), None)
     s_matrix[0, 0] = np.eye(2*g_num, dtype=np.cdouble)
     s_matrix[0, 1] = np.zeros((2*g_num, 2*g_num),
@@ -87,7 +85,6 @@ def compute_s_matrix(stack, settings):
                               dtype=np.cdouble)
     s_matrix[1, 1] = np.eye(2*g_num, dtype=np.cdouble)
 
-    # read in top layer
     layer_prev = stack.top_layer
     m_prev, wavenumbers = compute_propagation(
         layer_prev.pattern,
@@ -97,7 +94,6 @@ def compute_s_matrix(stack, settings):
     phase_prev = np.ones(2*g_num, dtype=np.cdouble)
     layer = layer_prev.next
 
-    # step through layers
     while layer:
         curly_e_2d = 0
         while layer.pattern.two_dimensional:
@@ -110,13 +106,11 @@ def compute_s_matrix(stack, settings):
             settings
         )
 
-        # check if bottom layer has been reached
         if layer.next is None:
             phase_cur = np.ones(2*g_num, dtype=np.cdouble)
         else:
             phase_cur = np.exp(1j*wavenumbers*layer.thickness)
 
-        # update s_matrix
         if isinstance(curly_e_2d, np.ndarray):
             transfer_matrix = np.block(
                 [[np.eye(2*g_num, dtype=np.cdouble),
@@ -129,13 +123,121 @@ def compute_s_matrix(stack, settings):
             interface = np.linalg.solve(m_prev, m_cur)
         __apply_interface(s_matrix, interface, phase_prev, phase_cur)
 
-        # proceed to next layer
         phase_prev = phase_cur
         m_prev = m_cur
         layer_prev = layer
         layer = layer.next
 
     return s_matrix
+
+
+def diagonalize_structured(pattern, settings, kx_vec, ky_vec):
+    """Diagonalizes propagation matrix for an inhomogeneous pattern.
+
+    Args:
+        pattern: Pattern for which to diagonalize the propagation matrix.
+        settings: Dictionary containing simulation settings.
+        kx_vec: Vector with of length g_num, containing the value of the
+            momentum along x for each diffraction order.
+        ky_vec: Same as kx_vec but for the momentum along y.
+
+    Returns:
+        (eig_vals, eig_vecs, a_matrix): These matrices are defined in the
+            technical documentation.
+    """
+    g_num = settings['g_num']
+    frequency = settings['frequency']
+
+    k_mat = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))
+    k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
+    permittivity_list = [material.permittivity[2]
+                         for material in pattern.material_list]
+    eps_ft = fourier_transform(permittivity_list, pattern.width_list, g_num)
+    latin_k = k_perp_mat @ k_perp_mat.T
+    curly_k = k_mat @ np.linalg.solve(eps_ft, k_mat.T)
+    curly_e = compute_curly_e(pattern, settings)
+    eig_vals, eig_vecs = np.linalg.eig(
+        (frequency**2*np.eye(2*g_num) - curly_k) @ curly_e - latin_k
+    )
+    return eig_vals, eig_vecs, (frequency**2*curly_e -
+                                latin_k)/frequency
+
+
+def diagonalize_anisotropic(permittivity, settings, kx_vec, ky_vec):
+    """Diagonalizes propagation matrix for a homogeneous but anisotropic
+    pattern. The diagonalization is optimized to take advantage of the
+    homoegeneity of the layer. The ith and (i + g_num)th eigenvector and
+    eigenvalue correspond to the ith diffraction order but their polarization
+    is unspecified.
+
+    The input and output arguments are the same as for diagonalize_structured
+    except for the first input argument, which is a 3-element list of
+    permittivities instead of a pattern.
+    """
+    g_num = settings['g_num']
+    frequency = settings['frequency']
+    curly_e = np.diag(permittivity[0:2])
+    eig_vals = np.zeros(2*g_num, dtype=np.cdouble)
+    eig_vecs = np.zeros((2*g_num, 2*g_num), dtype=np.cdouble)
+    for i, (kx, ky) in enumerate(zip(kx_vec, ky_vec)):  # pylint: disable=invalid-name
+        curly_k = 1/permittivity[2]*np.array([[kx**2, kx*ky],
+                                              [kx*ky, ky**2]])
+        latin_k = np.array([[ky**2, -kx*ky], [-kx*ky, kx**2]])
+        eig_vals[[i, i+g_num]], eig_vecs[[[i], [i+g_num]], [i, i+g_num]] = (
+            np.linalg.eig(
+                (frequency**2*np.eye(2) - curly_k) @ curly_e - latin_k
+            )
+        )
+
+    k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
+    latin_k = k_perp_mat @ k_perp_mat.T
+    curly_e = np.kron(curly_e, np.eye(g_num, dtype=np.cdouble))
+
+    return eig_vals, eig_vecs, (frequency**2*curly_e -
+                                latin_k)/frequency
+
+
+def diagonalize_isotropic(permittivity, settings, kx_vec, ky_vec):
+    """Diagonalizes propagation matrix for a homogeneous pattern. The
+    diagonalization is done by hand to ensure appropriate ordering of s and p
+    polarizations. The ith (i + g_num)th eigenvector and eigenvalue correspond
+    to the s- (p-) polarization of the ith diffraction order.
+
+    The input and output arguments are the same as for diagonalize_structured
+    except for the first input argument, which is a 3-element list of
+    permittivities instead of a pattern.
+    """
+    g_num = settings['g_num']
+    frequency = settings['frequency']
+
+    eig_vecs_s = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
+    eig_vecs_p = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))
+    latin_k = eig_vecs_s @ eig_vecs_s.T
+
+    k_norm = np.sqrt(kx_vec**2 + ky_vec**2)
+    eig_vals_s = permittivity[0]*frequency**2 - k_norm**2
+    eig_vals_p = permittivity[0]*(frequency**2 - k_norm**2/permittivity[2])
+
+    ind = (k_norm/frequency < config.TOL)
+    ind = np.where(ind)[0]
+    k_norm[ind] = 1
+    eig_vecs_s[:, ind] = 0
+    eig_vecs_s[g_num + ind, ind] = 1
+    eig_vecs_s = eig_vecs_s/k_norm
+    eig_vecs_p[:, ind] = 0
+    eig_vecs_p[ind, ind] = 1
+    eig_vecs_p = eig_vecs_p/k_norm*np.sqrt(np.abs(
+        permittivity[2]*eig_vals_p/(
+            permittivity[0]**2*frequency**2 +
+            (permittivity[2] - permittivity[0])*eig_vals_p
+        )
+    ))
+
+    eig_vals = np.hstack((eig_vals_s, eig_vals_p))
+    eig_vecs = np.hstack((eig_vecs_s, eig_vecs_p))
+
+    return eig_vals, eig_vecs, (permittivity[0]*frequency**2*np.eye(2*g_num)
+                                - latin_k)/frequency
 
 
 def pattern_cache(func):
@@ -167,66 +269,9 @@ def compute_propagation(pattern, lattice_constant, settings):
         settings: Simulation settings.
 
     Returns:
-        (m_matrix, wavenumbers)
-        m_matrix: Matrix M as defined by Whittaker.
-        wavenumbers: The wavenumbers q_z for the propagation perpendicular to
-            the layers.
+        (m_matrix, wavenumbers): Quantities are defined in the technical
+            documentation.
     """
-
-    def __diagonalize_structured(pattern, settings, kx_vec, ky_vec):
-        """Diagonalizes propagation matrix for an inhomogeneous pattern."""
-        g_num = settings['g_num']
-        frequency = settings['frequency']
-
-        k_mat = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))
-        k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
-
-        eps_ft, _ = fourier_transform(pattern, settings)
-        latin_k = k_perp_mat @ k_perp_mat.T
-        curly_k = k_mat @ np.linalg.solve(eps_ft, k_mat.T)
-        curly_e = compute_curly_e(pattern, settings)
-        eig_vals, eig_vecs = np.linalg.eig(
-            (frequency**2*np.eye(2*g_num) - curly_k) @ curly_e - latin_k
-        )
-        return eig_vals, eig_vecs, (frequency**2*curly_e -
-                                    latin_k)/frequency
-
-
-    def __diagonalize_homogeneous(permittivity, settings, kx_vec, ky_vec):
-        """Diagonalizes propagation matrix for a homogeneous pattern. The
-        diagonalization is done by hand to ensure appropriate ordering of s and
-        p polarizations."""
-        g_num = settings['g_num']
-        frequency = settings['frequency']
-
-        k_mat = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))
-        k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
-
-        latin_k = k_perp_mat @ k_perp_mat.T
-
-        # normalize while taking care of zero momentum
-        k_norm = np.sqrt(kx_vec**2 + ky_vec**2)
-        eig_vals = permittivity*frequency**2 - k_norm**2
-        ind = (k_norm/frequency < config.TOL)
-        k_norm[ind] = 1
-        k_mat[:, ind] = 0
-        k_perp_mat[:, ind] = 0
-        ind = np.where(ind)[0]
-        if len(ind) > 1:
-            raise RuntimeError("Strangely enough, more than one momentum is"
-                               "close to zero.")
-        k_mat[ind, ind] = 1
-        k_mat = k_mat/k_norm*csqrt(eig_vals/(permittivity*frequency**2))
-        k_perp_mat[g_num + ind, ind] = 1
-        k_perp_mat = k_perp_mat/k_norm
-
-        # combine s- and p-polarizations
-        eig_vecs = np.hstack((k_perp_mat, k_mat))
-        eig_vals = np.concatenate((eig_vals, eig_vals))
-        return eig_vals, eig_vecs, (permittivity*frequency**2*np.eye(2*g_num) -
-                                    latin_k)/frequency
-
-
     momentum = settings['momentum']
 
     if settings['g_num'] == 1:
@@ -238,19 +283,28 @@ def compute_propagation(pattern, lattice_constant, settings):
                                           settings['g_max']+1))
         ky_vec = momentum[1]*np.ones(settings['g_num'])
 
-    if len(pattern.width_list) == 1:
-        eig_vals, eig_vecs, a_matrix = __diagonalize_homogeneous(
-            pattern.material_list[0].permittivity, settings, kx_vec, ky_vec)
+    if pattern.homogeneous:
+        material = pattern.material_list[0]
+        if material.isotropic:
+            eig_vals, eig_vecs, a_matrix = diagonalize_isotropic(
+                material.permittivity, settings, kx_vec, ky_vec
+            )
+        else:
+            eig_vals, eig_vecs, a_matrix = diagonalize_anisotropic(
+                material.permittivity, settings, kx_vec, ky_vec
+            )
     else:
-        eig_vals, eig_vecs, a_matrix = __diagonalize_structured(
-            pattern, settings, kx_vec, ky_vec)
+        eig_vals, eig_vecs, a_matrix = diagonalize_structured(
+            pattern, settings, kx_vec, ky_vec
+        )
 
     # ensure wavenumbers have positive imaginary part
     wavenumbers = csqrt(eig_vals)
     wavenumbers[np.imag(wavenumbers) < 0] *= -1
 
     # TODO: need better treatment of wavenumbers == 0. This could be
-    # accomplished by analyticall inverting m_matrix.
+    # accomplished by analytically inverting m_matrix.
+    # TODO: move some of this stuff into child functions
     wavenumbers[wavenumbers == 0] = np.nan
     block = a_matrix @ eig_vecs / wavenumbers
     wavenumbers[np.isnan(wavenumbers)] = 0
@@ -260,59 +314,60 @@ def compute_propagation(pattern, lattice_constant, settings):
     return m_matrix, wavenumbers
 
 
-@pattern_cache
-def fourier_transform(pattern, settings):
-    """Computes the Fourier transforms of permittivities.
+def fourier_transform(variable_list, width_list, g_num):
+    """Computes the Fourier coefficients of a piecewise constant function.
 
     Args:
-        pattern: Instance of Pattern to be Fourier transformed.
-        settings: Dictionary containing simulation settings (only g_num is
-            required).
+        variable_list: List of function values for each piece.
+        width_list: List of widths of each piece.
+        g_num: Number of Fourier orders.
 
     Returns:
-        Matrices epsilon and eta as defined by Liu and Fan.
+        Toeplitz matrix of Fourier coefficients.
     """
-    g_num = settings['g_num']
-
     g_diff = 2*np.pi*np.arange(0, g_num)
 
-    # We only compute the first row and column and use toeplitz to construct
-    # the full matrix.
-    eps_column = np.zeros(g_num, dtype=np.cdouble)
-    eps_row = np.zeros(g_num, dtype=np.cdouble)
-    eta_column = np.zeros(g_num, dtype=np.cdouble)
-    eta_row = np.zeros(g_num, dtype=np.cdouble)
+    column = np.zeros(g_num, dtype=np.cdouble)
+    row = np.zeros(g_num, dtype=np.cdouble)
 
     cur_pos = 0
-    for i, material in enumerate(pattern.material_list):
-        permittivity = material.permittivity
-        width = pattern.width_list[i]
-        eps_column += (permittivity*width*
-                       np.exp(-1j*g_diff*(cur_pos + width/2))*
-                       np.sinc(g_diff*width/2/np.pi))
-        eps_row += (permittivity*width*
-                    np.exp(+1j*g_diff*(cur_pos + width/2))*
-                    np.sinc(g_diff*width/2/np.pi))
-        eta_column += (1/permittivity*width*
-                       np.exp(-1j*g_diff*(cur_pos + width/2))*
-                       np.sinc(g_diff*width/2/np.pi))
-        eta_row += (1/permittivity*width*
-                    np.exp(+1j*g_diff*(cur_pos + width/2))*
-                    np.sinc(g_diff*width/2/np.pi))
+    for variable, width in zip(variable_list, width_list):
+        column += (variable*width*np.exp(-1j*g_diff*(cur_pos + width/2))*
+                   np.sinc(g_diff*width/2/np.pi))
+        row += (variable*width*np.exp(+1j*g_diff*(cur_pos + width/2))*
+                np.sinc(g_diff*width/2/np.pi))
         cur_pos += width
 
-    return (scipy.linalg.toeplitz(eps_column, eps_row),
-            scipy.linalg.toeplitz(eta_column, eta_row))
+    return scipy.linalg.toeplitz(column, row)  # pylint: disable=no-member
 
 
 def compute_curly_e(pattern, settings):
-    """Return curly_e."""
+    """Returns curly_e as defined in the technical documentation.
+
+    Args:
+        pattern: Pattern for which curly_e is to be computed.
+        settings: Simulation settings.
+
+    Returns:
+        curly_e: A 2*g_numx2*g_num numpy array.
+    """
     g_num = settings['g_num']
-    if len(pattern.width_list) == 1:  # homogeneous pattern
-        curly_e = (pattern.material_list[0].permittivity
-                   *np.eye(2*g_num, dtype=np.cdouble))
-    else:  # homogeneous pattern
-        eps_ft, eta_ft = fourier_transform(pattern, settings)
+    if pattern.homogeneous:
+        curly_e = np.block(
+            [[pattern.material_list[0].permittivity[0]
+              *np.eye(g_num, dtype=np.cdouble),
+              np.zeros((g_num, g_num), dtype=np.cdouble)],
+             [np.zeros((g_num, g_num), dtype=np.cdouble),
+              pattern.material_list[0].permittivity[1]
+              *np.eye(g_num, dtype=np.cdouble)]]
+        )
+    else:
+        eta_list = [1/material.permittivity[0]
+                    for material in pattern.material_list]
+        eps_list = [material.permittivity[1]
+                    for material in pattern.material_list]
+        eta_ft = fourier_transform(eta_list, pattern.width_list, g_num)
+        eps_ft = fourier_transform(eps_list, pattern.width_list, g_num)
         curly_e = np.block(
             [[np.linalg.inv(eta_ft),
               np.zeros((g_num, g_num), dtype=np.cdouble)],
