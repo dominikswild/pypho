@@ -7,8 +7,13 @@ with open("LICENSE") as f:
     license = f.read()
 
 setup(
+<<<<<<< HEAD
     name="pyPho",
     version="0.0.1",
+=======
+    name='pyPho',
+    version='0.0.1',
+>>>>>>> 3ae9a1d7a1ef5d775a7a3491304ffc083649d943
     description=("A photonics package for Python."),
     long_description=readme,
     author="Dominik S. Wild",
