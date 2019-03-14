@@ -9,8 +9,7 @@ with open('LICENSE') as f:
 setup(
     name='pyPho',
     version='0.0.1',
-    description=('Toolbox for computing optical properties of 2D materials '
-                 'embedded in layered, periodic structures'),
+    description=("A photonics package for Python."),
     long_description=readme,
     author='Dominik S. Wild',
     author_email='dominikswild@gmail.com',
