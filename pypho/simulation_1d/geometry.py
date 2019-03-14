@@ -270,20 +270,28 @@ class Stack():
     def print(self):
         """Prints information about all layers in the stack."""
         layer = self.top_layer
-        i = 0
+        layer_index = 0
         while layer:
-            print(f"Layer {i}:")
+            print(f"Layer {layer_index}:")
 
             print(f"\tTickness: {layer.thickness}", end="")
-            if i == 0 or layer.next is None or layer.pattern.two_dimensional:
+            if layer_index == 0 or layer.next is None or layer.pattern.two_dimensional:
                 print(" (unused)", end="")
             print()
 
-            formatted_widths = [float(f"{self.lattice_constant*width:.3g}")
-                                for width in layer.pattern.width_list]
-            print(
-                f"\tWidths: {formatted_widths}"
-            )
+            lattice_constant = self.lattice_constant
+            if lattice_constant is None:
+                lattice_constant = 1
+            width_string = "\tWidths: ["
+            for i, width in enumerate(layer.pattern.width_list):
+                if width is None:
+                    width_string += "None"
+                else:
+                    width_string += f"{lattice_constant*width:.3g}"
+                if i < len(layer.pattern.width_list) - 1:
+                    width_string += ", "
+            width_string += "]"
+            print(width_string)
 
             # permittivity string is more complicated to handle complex numbers
             permittivity_list = [material.permittivity
@@ -303,7 +311,7 @@ class Stack():
 
             print()
             layer = layer.next
-            i += 1
+            layer_index += 1
 
 
 
