@@ -165,6 +165,6 @@ class Simulation():
             reflection = reflection @ polarization_in
         if polarization_out is not None:
             polarization_out = polarization_out/np.linalg.norm(polarization_out)
-            reflection = polarization_out @ reflection
+            reflection = np.conj(polarization_out) @ reflection
 
         return reflection
