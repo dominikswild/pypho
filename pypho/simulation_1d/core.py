@@ -159,6 +159,15 @@ def diagonalize_structured(pattern, settings, kx_vec, ky_vec):
     eig_vals, eig_vecs = np.linalg.eig(
         (frequency**2*np.eye(2*g_num) - curly_k) @ curly_e - latin_k
     )
+    if abs(np.det(eig_vecs)) < config.TOL:
+        raise RuntimeError("Encountered a defective propagation matrix. "
+                           "The current implementation of pyPho is "
+                           "incapable of handling this situation :(")
+    if (abs(eig_vals_temp)/frequency**2 < config.TOL).any:
+        raise RuntimeError("Encountered a mode that does not propagate "
+                           "out of plane (q = 0). The current implementation "
+                           "of pyPho is incapable of handling this situation "
+                           ":(")
     return eig_vals, eig_vecs, (frequency**2*curly_e -
                                 latin_k)/frequency
 
@@ -183,11 +192,21 @@ def diagonalize_anisotropic(permittivity, settings, kx_vec, ky_vec):
         curly_k = 1/permittivity[2]*np.array([[kx**2, kx*ky],
                                               [kx*ky, ky**2]])
         latin_k = np.array([[ky**2, -kx*ky], [-kx*ky, kx**2]])
-        eig_vals[[i, i+g_num]], eig_vecs[[[i], [i+g_num]], [i, i+g_num]] = (
-            np.linalg.eig(
-                (frequency**2*np.eye(2) - curly_k) @ curly_e - latin_k
-            )
+
+        eig_vals_temp, eig_vecs_temp = np.linalg.eig(
+            (frequency**2*np.eye(2) - curly_k) @ curly_e - latin_k
         )
+        if abs(np.det(eig_vecs_temp)) < config.TOL:
+            raise RuntimeError("Encountered a defective propagation matrix. "
+                               "The current implementation of pyPho is "
+                               "incapable of handling this situation :(")
+        if (abs(eig_vals_temp)/frequency**2 < config.TOL).any:
+            raise RuntimeError("Encountered a mode that does not propagate "
+                               "out of plane (q = 0). The current implementation "
+                               "of pyPho is incapable of handling this situation "
+                               ":(")
+        eig_vals[[i, i+g_num]] = eig_vals_temp
+        eig_vecs[[[i], [i+g_num]], [i, i+g_num]] = eig_vecs_temp
 
     k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
     latin_k = k_perp_mat @ k_perp_mat.T
@@ -217,6 +236,13 @@ def diagonalize_isotropic(permittivity, settings, kx_vec, ky_vec):
     k_norm = np.sqrt(kx_vec**2 + ky_vec**2)
     eig_vals_s = permittivity[0]*frequency**2 - k_norm**2
     eig_vals_p = permittivity[0]*(frequency**2 - k_norm**2/permittivity[2])
+
+    if ((abs(eig_vals_s)/frequency**2 < config.TOL).any or
+        (abs(eig_vals_p)/frequency**2 < config.TOL).any):
+        raise RuntimeError("Encountered a mode that does not propagate "
+                           "out of plane (q = 0). The current implementation "
+                           "of pyPho is incapable of handling this situation "
+                           ":(")
 
     ind = (k_norm/frequency < config.TOL)
     ind = np.where(ind)[0]
@@ -302,12 +328,7 @@ def compute_propagation(pattern, lattice_constant, settings):
     wavenumbers = csqrt(eig_vals)
     wavenumbers[np.imag(wavenumbers) < 0] *= -1
 
-    # TODO: need better treatment of wavenumbers == 0. This could be
-    # accomplished by analytically inverting m_matrix.
-    # TODO: move some of this stuff into child functions
-    wavenumbers[wavenumbers == 0] = np.nan
     block = a_matrix @ eig_vecs / wavenumbers
-    wavenumbers[np.isnan(wavenumbers)] = 0
 
     m_matrix = np.block([[eig_vecs, eig_vecs], [-block, block]])
 
@@ -375,3 +396,4 @@ def compute_curly_e(pattern, settings):
         )
 
     return curly_e
+
