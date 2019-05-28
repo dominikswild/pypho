@@ -168,3 +168,68 @@ class Simulation():
             reflection = np.conj(polarization_out) @ reflection
 
         return reflection
+
+    def get_transmission(self, order_in=0, polarization_in=None, order_out=0,
+                       polarization_out=None):
+        """Obtains the amplitude transmission coefficient for given input/output
+        diffraction orders and polarizations from the S-matrix.
+
+        Args:
+            order_in: Diffraction order of the incident light.
+            polarization_in: Vector of the incident polarization in the s-p
+                basis.
+            order_out, polarization_out: Same as above for transmitted light.
+
+        Returns:
+            The amplitude transmission coefficient. If both polarizations are
+            specified, the output is a complex number. If one of the
+            polarizations is specified, a 2 element array is returned, where
+            the first (second) entry corresponds to the s (p) component of the
+            other polarization. If both arguments are emitted, a 2x2 array is
+            returned, where the row (column) index corresponds to the
+            transmitted (incident) polarization.
+
+        Raises:
+            RuntimeError: Simulation.run() has not been called.
+            Warning: Top layer is inhomogeneous or anisotropic.
+        """
+        if not self.output:
+            raise RuntimeError("You must run the simulation before results "
+                               "can be returned.")
+        if not self.stack.top_layer.pattern.homogeneous:
+            warnings.warn("The transmission coefficient has no simple "
+                          "interpretation for an inhomogenous top layer.")
+        else:
+            if not self.stack.top_layer.pattern.material_list[0].isotropic:
+                warnings.warn("The transmission coefficient has no simple "
+                              "interpretation for a top layer with in-plane "
+                              "anisotropy.")
+
+        bottom_layer = self.stack.top_layer
+        while bottom_layer.next:
+            bottom_layer = bottom_layer.next
+        if not bottom_layer.pattern.homogeneous:
+            warnings.warn("The transmission coefficient has no simple "
+                          "interpretation for an inhomogenous bottom layer.")
+        else:
+            if not bottom_layer.pattern.material_list[0].isotropic:
+                warnings.warn("The transmission coefficient has no simple "
+                              "interpretation for a bottom layer with in-plane "
+                              "anisotropy.")
+
+        index_sp = np.array([[self.settings['g_max'],
+                              3*self.settings['g_max'] + 1]])
+        transmission = self.output['s_matrix'][1, 0][
+            index_sp.transpose() + order_out,
+            index_sp + order_in
+        ]
+
+        if polarization_in is not None:
+            polarization_in = polarization_in/np.linalg.norm(polarization_in)
+            transmission = transmission @ polarization_in
+        if polarization_out is not None:
+            polarization_out = polarization_out/np.linalg.norm(polarization_out)
+            transmission = np.conj(polarization_out) @ transmission
+
+        return transmission
+
