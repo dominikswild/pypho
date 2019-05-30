@@ -219,7 +219,7 @@ class Simulation():
 
         index_sp = np.array([[self.settings['g_max'],
                               3*self.settings['g_max'] + 1]])
-        transmission = self.output['s_matrix'][1, 0][
+        transmission = self.output['s_matrix'][0, 0][
             index_sp.transpose() + order_out,
             index_sp + order_in
         ]
