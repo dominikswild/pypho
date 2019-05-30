@@ -159,11 +159,7 @@ def diagonalize_structured(pattern, settings, kx_vec, ky_vec):
     eig_vals, eig_vecs = np.linalg.eig(
         (frequency**2*np.eye(2*g_num) - curly_k) @ curly_e - latin_k
     )
-    if abs(np.det(eig_vecs)) < config.TOL:
-        raise RuntimeError("Encountered a defective propagation matrix. "
-                           "The current implementation of pyPho is "
-                           "incapable of handling this situation :(")
-    if (abs(eig_vals_temp)/frequency**2 < config.TOL).any:
+    if np.any(abs(eig_vals)/frequency**2 < config.TOL):
         raise RuntimeError("Encountered a mode that does not propagate "
                            "out of plane (q = 0). The current implementation "
                            "of pyPho is incapable of handling this situation "
@@ -196,11 +192,7 @@ def diagonalize_anisotropic(permittivity, settings, kx_vec, ky_vec):
         eig_vals_temp, eig_vecs_temp = np.linalg.eig(
             (frequency**2*np.eye(2) - curly_k) @ curly_e - latin_k
         )
-        if abs(np.det(eig_vecs_temp)) < config.TOL:
-            raise RuntimeError("Encountered a defective propagation matrix. "
-                               "The current implementation of pyPho is "
-                               "incapable of handling this situation :(")
-        if (abs(eig_vals_temp)/frequency**2 < config.TOL).any:
+        if np.any(abs(eig_vals_temp)/frequency**2 < config.TOL):
             raise RuntimeError("Encountered a mode that does not propagate "
                                "out of plane (q = 0). The current implementation "
                                "of pyPho is incapable of handling this situation "
@@ -237,8 +229,8 @@ def diagonalize_isotropic(permittivity, settings, kx_vec, ky_vec):
     eig_vals_s = permittivity[0]*frequency**2 - k_norm**2
     eig_vals_p = permittivity[0]*(frequency**2 - k_norm**2/permittivity[2])
 
-    if ((abs(eig_vals_s)/frequency**2 < config.TOL).any or
-        (abs(eig_vals_p)/frequency**2 < config.TOL).any):
+    if (np.any(abs(eig_vals_s)/frequency**2 < config.TOL) or
+        np.any(abs(eig_vals_p)/frequency**2 < config.TOL)):
         raise RuntimeError("Encountered a mode that does not propagate "
                            "out of plane (q = 0). The current implementation "
                            "of pyPho is incapable of handling this situation "
