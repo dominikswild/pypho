@@ -160,15 +160,19 @@ def diagonalize_structured(pattern, settings): # pylint: disable=too-many-locals
     eig_vals, eig_vecs_e = np.linalg.eig(
         (frequency**2*np.eye(2*g_num) - curly_k) @ curly_e - latin_k
     )
-    if np.any(abs(eig_vals)/frequency**2 < config.TOL):
+    eig_vals = csqrt(eig_vals)
+    eig_vals[np.imag(eig_vals) < 0] *= -1
+    if np.any(abs(eig_vals)/frequency < config.TOL):
         raise RuntimeError("Encountered a mode that does not propagate "
                            "out of plane (q = 0). The current implementation "
                            "of pyPho is incapable of handling this situation "
                            ":(")
-    eig_vals = csqrt(eig_vals)
-    eig_vals[np.imag(eig_vals) < 0] *= -1
     eig_vecs_h = - ((frequency**2*curly_e - latin_k) @ eig_vecs_e /
                     (frequency*eig_vals))
+
+    normalization = -frequency/eig_vals*np.diag(eig_vecs_h.T @ eig_vecs_e)
+    eig_vecs_e = eig_vecs_e/np.sqrt(normalization)
+    eig_vecs_h = eig_vecs_h/np.sqrt(normalization)
 
     return eig_vals, eig_vecs_e, eig_vecs_h
 
@@ -200,7 +204,9 @@ def diagonalize_anisotropic(permittivity, settings): # pylint: disable=too-many-
         eig_vals_temp, eig_vecs_temp = np.linalg.eig(
             (frequency**2*np.eye(2) - curly_k) @ curly_e - latin_k
         )
-        if np.any(abs(eig_vals_temp)/frequency**2 < config.TOL):
+        eig_vals_temp = csqrt(eig_vals_temp)
+        eig_vals_temp[np.imag(eig_vals_temp) < 0] *= -1
+        if np.any(abs(eig_vals_temp)/frequency < config.TOL):
             raise RuntimeError("Encountered a mode that does not propagate "
                                "out of plane (q = 0). The current "
                                "implementation of pyPho is incapable of "
@@ -208,13 +214,14 @@ def diagonalize_anisotropic(permittivity, settings): # pylint: disable=too-many-
         eig_vals[[i, i+g_num]] = eig_vals_temp
         eig_vecs_e[[[i], [i+g_num]], [i, i+g_num]] = eig_vecs_temp
 
-    eig_vals = csqrt(eig_vals)
-    eig_vals[np.imag(eig_vals) < 0] *= -1
     k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
-    latin_k = k_perp_mat @ k_perp_mat.T
     curly_e = np.kron(curly_e, np.eye(g_num, dtype=np.cdouble))
-    eig_vecs_h = - ((frequency**2*curly_e - latin_k) @ eig_vecs_e /
-                    (frequency*eig_vals))
+    eig_vecs_h = -((frequency**2*curly_e - k_perp_mat@k_perp_mat.T)@eig_vecs_e/
+                   (frequency*eig_vals))
+
+    normalization = -frequency/eig_vals*np.diag(eig_vecs_h.T @ eig_vecs_e)
+    eig_vecs_e = eig_vecs_e/np.sqrt(normalization)
+    eig_vecs_h = eig_vecs_h/np.sqrt(normalization)
 
     return eig_vals, eig_vecs_e, eig_vecs_h
 
@@ -234,16 +241,17 @@ def diagonalize_isotropic(permittivity, settings): # pylint: disable=too-many-lo
     kx_vec = settings['kx_vec']
     ky_vec = settings['ky_vec']
 
-    eig_vecs_s = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
-    eig_vecs_p = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))
-    latin_k = eig_vecs_s @ eig_vecs_s.T
-
+    k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
     k_norm = np.sqrt(kx_vec**2 + ky_vec**2)
     eig_vals_s = permittivity[0]*frequency**2 - k_norm**2
+    eig_vals_s = csqrt(eig_vals_s)
+    eig_vals_s[np.imag(eig_vals_s) < 0] *= -1
     eig_vals_p = permittivity[0]*(frequency**2 - k_norm**2/permittivity[2])
+    eig_vals_p = csqrt(eig_vals_p)
+    eig_vals_p[np.imag(eig_vals_p) < 0] *= -1
+    eig_vals = np.hstack((eig_vals_s, eig_vals_p))
 
-    if (np.any(abs(eig_vals_s)/frequency**2 < config.TOL) or
-            np.any(abs(eig_vals_p)/frequency**2 < config.TOL)):
+    if np.any(abs(eig_vals)/frequency < config.TOL):
         raise RuntimeError("Encountered a mode that does not propagate "
                            "out of plane (q = 0). The current implementation "
                            "of pyPho is incapable of handling this situation "
@@ -252,24 +260,17 @@ def diagonalize_isotropic(permittivity, settings): # pylint: disable=too-many-lo
     ind = (k_norm/frequency < config.TOL)
     ind = np.where(ind)[0]
     k_norm[ind] = 1
+
+    eig_vecs_s = k_perp_mat/k_norm
     eig_vecs_s[:, ind] = 0
     eig_vecs_s[g_num + ind, ind] = 1
-    eig_vecs_s = eig_vecs_s/k_norm
+    eig_vecs_p = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))/k_norm
     eig_vecs_p[:, ind] = 0
     eig_vecs_p[ind, ind] = 1
-    eig_vecs_p = eig_vecs_p/k_norm*np.sqrt(np.abs(
-        permittivity[2]*eig_vals_p/(
-            permittivity[0]**2*frequency**2 +
-            (permittivity[2] - permittivity[0])*eig_vals_p
-        )
-    ))
-
-    eig_vals = np.hstack((eig_vals_s, eig_vals_p))
-    eig_vals = csqrt(eig_vals)
-    eig_vals[np.imag(eig_vals) < 0] *= -1
+    eig_vecs_p = eig_vecs_p*eig_vals_p/(csqrt(permittivity[0]*frequency))
     eig_vecs_e = np.hstack((eig_vecs_s, eig_vecs_p))
     eig_vecs_h = - (permittivity[0]*frequency**2*np.eye(2*g_num)
-                    - latin_k) @ eig_vecs_e / (frequency*eig_vals)
+                    - k_perp_mat@k_perp_mat.T)@eig_vecs_e/(frequency*eig_vals)
 
     return eig_vals, eig_vecs_e, eig_vecs_h
 
