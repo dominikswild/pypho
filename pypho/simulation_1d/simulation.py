@@ -113,6 +113,22 @@ class Simulation():
         """Runs the simulation and stores the results in the output dictionary.
         Currently defined fields of the dictionary are: 's_matrix'.
         """
+        g_max = self.settings['g_max']
+        g_num = self.settings['g_num']
+        momentum = self.settings['momentum']
+
+        if 'g_num' == 1:
+            self.settings['kx_vec'] = np.array([momentum[0]])
+            self.settings['ky_vec'] = np.array([momentum[1]])
+        else:
+            self.settings['kx_vec'] = momentum[0] + (
+                2*np.pi/self.stack.lattice_constant* np.arange(-g_max, g_max+1)
+            )
+            self.settings['ky_vec'] = momentum[1]*np.ones(g_num)
+
+        for _key, pattern in self.stack.pattern_dict.items():
+            core.compute_propagation(pattern, self.settings)
+
         self.output['s_matrix'] = core.compute_s_matrix(self.stack,
                                                         self.settings)
 
@@ -169,8 +185,9 @@ class Simulation():
 
         return reflection
 
+
     def get_transmission(self, order_in=0, polarization_in=None, order_out=0,
-                       polarization_out=None):
+                         polarization_out=None):
         """Obtains the amplitude transmission coefficient for given input/output
         diffraction orders and polarizations from the S-matrix.
 
@@ -232,4 +249,3 @@ class Simulation():
             transmission = np.conj(polarization_out) @ transmission
 
         return transmission
-

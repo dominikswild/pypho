@@ -263,10 +263,8 @@ class Stack():
             for _key, pattern in self.pattern_dict.items():
                 if args[0] in pattern.material_list:
                     pattern.clear_cache()
-                    break
 
 
-    # TODO: Add more functionality to query stack.
     def print(self):
         """Prints information about all layers in the stack."""
         layer = self.top_layer
@@ -275,7 +273,8 @@ class Stack():
             print(f"Layer {layer_index}:")
 
             print(f"\tTickness: {layer.thickness}", end="")
-            if layer_index == 0 or layer.next is None or layer.pattern.two_dimensional:
+            if (layer_index == 0 or
+                    layer.next is None or layer.pattern.two_dimensional):
                 print(" (unused)", end="")
             print()
 

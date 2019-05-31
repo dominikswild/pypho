@@ -86,11 +86,10 @@ def compute_s_matrix(stack, settings):
     s_matrix[1, 1] = np.eye(2*g_num, dtype=np.cdouble)
 
     layer_prev = stack.top_layer
-    m_prev, wavenumbers = compute_propagation(
-        layer_prev.pattern,
-        stack.lattice_constant,
-        settings
-    )
+    m_prev = np.block([[layer_prev.pattern.cache['eig_vecs_e'],
+                        layer_prev.pattern.cache['eig_vecs_e']],
+                       [layer_prev.pattern.cache['eig_vecs_h'],
+                        -layer_prev.pattern.cache['eig_vecs_h']]])
     phase_prev = np.ones(2*g_num, dtype=np.cdouble)
     layer = layer_prev.next
 
@@ -100,16 +99,16 @@ def compute_s_matrix(stack, settings):
             curly_e_2d += compute_curly_e(layer.pattern, settings)
             layer = layer.next
 
-        m_cur, wavenumbers = compute_propagation(
-            layer.pattern,
-            stack.lattice_constant,
-            settings
-        )
+        m_cur = np.block([[layer.pattern.cache['eig_vecs_e'],
+                           layer.pattern.cache['eig_vecs_e']],
+                          [layer.pattern.cache['eig_vecs_h'],
+                           -layer.pattern.cache['eig_vecs_h']]])
 
         if layer.next is None:
             phase_cur = np.ones(2*g_num, dtype=np.cdouble)
         else:
-            phase_cur = np.exp(1j*wavenumbers*layer.thickness)
+            phase_cur = np.exp(1j*layer.pattern.cache['eig_vals']*
+                               layer.thickness)
 
         if isinstance(curly_e_2d, np.ndarray):
             transfer_matrix = np.block(
@@ -131,7 +130,7 @@ def compute_s_matrix(stack, settings):
     return s_matrix
 
 
-def diagonalize_structured(pattern, settings, kx_vec, ky_vec):
+def diagonalize_structured(pattern, settings): # pylint: disable=too-many-locals
     """Diagonalizes propagation matrix for an inhomogeneous pattern.
 
     Args:
@@ -147,6 +146,8 @@ def diagonalize_structured(pattern, settings, kx_vec, ky_vec):
     """
     g_num = settings['g_num']
     frequency = settings['frequency']
+    kx_vec = settings['kx_vec']
+    ky_vec = settings['ky_vec']
 
     k_mat = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))
     k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
@@ -156,7 +157,7 @@ def diagonalize_structured(pattern, settings, kx_vec, ky_vec):
     latin_k = k_perp_mat @ k_perp_mat.T
     curly_k = k_mat @ np.linalg.solve(eps_ft, k_mat.T)
     curly_e = compute_curly_e(pattern, settings)
-    eig_vals, eig_vecs = np.linalg.eig(
+    eig_vals, eig_vecs_e = np.linalg.eig(
         (frequency**2*np.eye(2*g_num) - curly_k) @ curly_e - latin_k
     )
     if np.any(abs(eig_vals)/frequency**2 < config.TOL):
@@ -164,11 +165,15 @@ def diagonalize_structured(pattern, settings, kx_vec, ky_vec):
                            "out of plane (q = 0). The current implementation "
                            "of pyPho is incapable of handling this situation "
                            ":(")
-    return eig_vals, eig_vecs, (frequency**2*curly_e -
-                                latin_k)/frequency
+    eig_vals = csqrt(eig_vals)
+    eig_vals[np.imag(eig_vals) < 0] *= -1
+    eig_vecs_h = - ((frequency**2*curly_e - latin_k) @ eig_vecs_e /
+                    (frequency*eig_vals))
+
+    return eig_vals, eig_vecs_e, eig_vecs_h
 
 
-def diagonalize_anisotropic(permittivity, settings, kx_vec, ky_vec):
+def diagonalize_anisotropic(permittivity, settings): # pylint: disable=too-many-locals
     """Diagonalizes propagation matrix for a homogeneous but anisotropic
     pattern. The diagonalization is optimized to take advantage of the
     homoegeneity of the layer. The ith and (i + g_num)th eigenvector and
@@ -181,9 +186,12 @@ def diagonalize_anisotropic(permittivity, settings, kx_vec, ky_vec):
     """
     g_num = settings['g_num']
     frequency = settings['frequency']
-    curly_e = np.diag(permittivity[0:2])
+    kx_vec = settings['kx_vec']
+    ky_vec = settings['ky_vec']
+
+    curly_e = np.diag(permittivity)
     eig_vals = np.zeros(2*g_num, dtype=np.cdouble)
-    eig_vecs = np.zeros((2*g_num, 2*g_num), dtype=np.cdouble)
+    eig_vecs_e = np.zeros((2*g_num, 2*g_num), dtype=np.cdouble)
     for i, (kx, ky) in enumerate(zip(kx_vec, ky_vec)):  # pylint: disable=invalid-name
         curly_k = 1/permittivity[2]*np.array([[kx**2, kx*ky],
                                               [kx*ky, ky**2]])
@@ -194,21 +202,24 @@ def diagonalize_anisotropic(permittivity, settings, kx_vec, ky_vec):
         )
         if np.any(abs(eig_vals_temp)/frequency**2 < config.TOL):
             raise RuntimeError("Encountered a mode that does not propagate "
-                               "out of plane (q = 0). The current implementation "
-                               "of pyPho is incapable of handling this situation "
-                               ":(")
+                               "out of plane (q = 0). The current "
+                               "implementation of pyPho is incapable of "
+                               "handling this situation :(")
         eig_vals[[i, i+g_num]] = eig_vals_temp
-        eig_vecs[[[i], [i+g_num]], [i, i+g_num]] = eig_vecs_temp
+        eig_vecs_e[[[i], [i+g_num]], [i, i+g_num]] = eig_vecs_temp
 
+    eig_vals = csqrt(eig_vals)
+    eig_vals[np.imag(eig_vals) < 0] *= -1
     k_perp_mat = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
     latin_k = k_perp_mat @ k_perp_mat.T
     curly_e = np.kron(curly_e, np.eye(g_num, dtype=np.cdouble))
+    eig_vecs_h = - ((frequency**2*curly_e - latin_k) @ eig_vecs_e /
+                    (frequency*eig_vals))
 
-    return eig_vals, eig_vecs, (frequency**2*curly_e -
-                                latin_k)/frequency
+    return eig_vals, eig_vecs_e, eig_vecs_h
 
 
-def diagonalize_isotropic(permittivity, settings, kx_vec, ky_vec):
+def diagonalize_isotropic(permittivity, settings): # pylint: disable=too-many-locals
     """Diagonalizes propagation matrix for a homogeneous pattern. The
     diagonalization is done by hand to ensure appropriate ordering of s and p
     polarizations. The ith (i + g_num)th eigenvector and eigenvalue correspond
@@ -220,6 +231,8 @@ def diagonalize_isotropic(permittivity, settings, kx_vec, ky_vec):
     """
     g_num = settings['g_num']
     frequency = settings['frequency']
+    kx_vec = settings['kx_vec']
+    ky_vec = settings['ky_vec']
 
     eig_vecs_s = np.vstack((-np.diag(ky_vec), np.diag(kx_vec)))
     eig_vecs_p = np.vstack((np.diag(kx_vec), np.diag(ky_vec)))
@@ -230,7 +243,7 @@ def diagonalize_isotropic(permittivity, settings, kx_vec, ky_vec):
     eig_vals_p = permittivity[0]*(frequency**2 - k_norm**2/permittivity[2])
 
     if (np.any(abs(eig_vals_s)/frequency**2 < config.TOL) or
-        np.any(abs(eig_vals_p)/frequency**2 < config.TOL)):
+            np.any(abs(eig_vals_p)/frequency**2 < config.TOL)):
         raise RuntimeError("Encountered a mode that does not propagate "
                            "out of plane (q = 0). The current implementation "
                            "of pyPho is incapable of handling this situation "
@@ -252,32 +265,16 @@ def diagonalize_isotropic(permittivity, settings, kx_vec, ky_vec):
     ))
 
     eig_vals = np.hstack((eig_vals_s, eig_vals_p))
-    eig_vecs = np.hstack((eig_vecs_s, eig_vecs_p))
+    eig_vals = csqrt(eig_vals)
+    eig_vals[np.imag(eig_vals) < 0] *= -1
+    eig_vecs_e = np.hstack((eig_vecs_s, eig_vecs_p))
+    eig_vecs_h = - (permittivity[0]*frequency**2*np.eye(2*g_num)
+                    - latin_k) @ eig_vecs_e / (frequency*eig_vals)
 
-    return eig_vals, eig_vecs, (permittivity[0]*frequency**2*np.eye(2*g_num)
-                                - latin_k)/frequency
-
-
-def pattern_cache(func):
-    """Provides caching decorator to store propagation properties of individual
-    patterns. The first argument of func must be an instance of Pattern.
-    """
-    def func_cached(*args, **kwargs):
-        pattern = args[0]
-        if func.__name__ not in pattern.cache:
-            out = func(*args, **kwargs)
-            if config.CACHING:  # caching enabled
-                pattern.cache[func.__name__] = out
-        else:
-            out = pattern.cache[func.__name__]
-
-        return out
-
-    return func_cached
+    return eig_vals, eig_vecs_e, eig_vecs_h
 
 
-@pattern_cache
-def compute_propagation(pattern, lattice_constant, settings):
+def compute_propagation(pattern, settings):
     """Solves propagation for a given pattern and returns results required to
     compute S-matrix.
 
@@ -290,41 +287,27 @@ def compute_propagation(pattern, lattice_constant, settings):
         (m_matrix, wavenumbers): Quantities are defined in the technical
             documentation.
     """
-    momentum = settings['momentum']
-
-    if settings['g_num'] == 1:
-        kx_vec = np.array([momentum[0]])
-        ky_vec = np.array([momentum[1]])
-    else:
-        kx_vec = momentum[0] + (2*np.pi/lattice_constant*
-                                np.arange(-settings['g_max'],
-                                          settings['g_max']+1))
-        ky_vec = momentum[1]*np.ones(settings['g_num'])
+    if pattern.cache:
+        return
 
     if pattern.homogeneous:
         material = pattern.material_list[0]
         if material.isotropic:
-            eig_vals, eig_vecs, a_matrix = diagonalize_isotropic(
-                material.permittivity, settings, kx_vec, ky_vec
+            eig_vals, eig_vecs_e, eig_vecs_h = diagonalize_isotropic(
+                material.permittivity, settings
             )
         else:
-            eig_vals, eig_vecs, a_matrix = diagonalize_anisotropic(
-                material.permittivity, settings, kx_vec, ky_vec
+            eig_vals, eig_vecs_e, eig_vecs_h = diagonalize_anisotropic(
+                material.permittivity, settings
             )
     else:
-        eig_vals, eig_vecs, a_matrix = diagonalize_structured(
-            pattern, settings, kx_vec, ky_vec
+        eig_vals, eig_vecs_e, eig_vecs_h = diagonalize_structured(
+            pattern, settings
         )
 
-    # ensure wavenumbers have positive imaginary part
-    wavenumbers = csqrt(eig_vals)
-    wavenumbers[np.imag(wavenumbers) < 0] *= -1
-
-    block = a_matrix @ eig_vecs / wavenumbers
-
-    m_matrix = np.block([[eig_vecs, eig_vecs], [-block, block]])
-
-    return m_matrix, wavenumbers
+    pattern.cache['eig_vals'] = eig_vals
+    pattern.cache['eig_vecs_e'] = eig_vecs_e
+    pattern.cache['eig_vecs_h'] = eig_vecs_h
 
 
 def fourier_transform(variable_list, width_list, g_num):
@@ -388,4 +371,3 @@ def compute_curly_e(pattern, settings):
         )
 
     return curly_e
-
